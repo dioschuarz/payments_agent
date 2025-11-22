@@ -21,14 +21,17 @@ resource "google_project_iam_member" "cloud_run_invoker" {
 }
 
 # Grant Load Balancer access to Cloud Run (for Serverless NEG)
-# Ensure project data is read before using project number
-resource "google_project_iam_member" "load_balancer_cloud_run_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${data.google_project.project.number}@cloudservices.gserviceaccount.com"
-
-  depends_on = [data.google_project.project]
-}
+# NOTE: Cloud Services service account is created automatically by GCP when you use certain services
+# If it doesn't exist yet, this will fail. In that case, create it manually or let GCP create it first.
+# The service account is: PROJECT_NUMBER@cloudservices.gserviceaccount.com
+# Uncomment after the service account exists or after first Compute Engine resource is created
+# resource "google_project_iam_member" "load_balancer_cloud_run_invoker" {
+#   project = var.project_id
+#   role    = "roles/run.invoker"
+#   member  = "serviceAccount:${data.google_project.project.number}@cloudservices.gserviceaccount.com"
+#
+#   depends_on = [data.google_project.project]
+# }
 
 # Data source to get project number
 # Ensure Cloud Resource Manager API is enabled before reading project
