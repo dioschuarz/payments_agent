@@ -12,7 +12,7 @@ resource "google_compute_region_network_endpoint_group" "cloud_run_neg" {
   # Ensure Compute Engine API is enabled and Cloud Run service exists before creating NEG
   depends_on = [
     google_project_service.compute,
-    google_cloud_run_v2_service.service  # NEG needs Cloud Run service to exist first
+    google_cloud_run_v2_service.service # NEG needs Cloud Run service to exist first
   ]
 }
 
@@ -41,8 +41,8 @@ resource "google_compute_backend_service" "cloud_run_backend" {
   # Ensure Compute Engine API is enabled and all upstream resources exist before creating backend service
   depends_on = [
     google_project_service.compute,
-    google_compute_security_policy.armor_policy,              # Security policy must exist
-    google_compute_region_network_endpoint_group.cloud_run_neg  # NEG must exist
+    google_compute_security_policy.armor_policy,               # Security policy must exist
+    google_compute_region_network_endpoint_group.cloud_run_neg # NEG must exist
   ]
 }
 
@@ -55,9 +55,9 @@ resource "google_compute_url_map" "cloud_run_url_map" {
 
 # HTTP(S) Proxy
 resource "google_compute_target_https_proxy" "cloud_run_https_proxy" {
-  count   = var.cloud_armor_enable_ssl ? 1 : 0
-  name    = "${var.service_name}-https-proxy-${var.environment}"
-  url_map = google_compute_url_map.cloud_run_url_map.id
+  count            = var.cloud_armor_enable_ssl ? 1 : 0
+  name             = "${var.service_name}-https-proxy-${var.environment}"
+  url_map          = google_compute_url_map.cloud_run_url_map.id
   ssl_certificates = var.cloud_armor_ssl_certificate_id != "" ? [var.cloud_armor_ssl_certificate_id] : []
 }
 

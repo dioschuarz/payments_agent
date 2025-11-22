@@ -226,6 +226,33 @@ jobs:
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
       
+      # CRITICAL: Create/Update Secret Manager Secret Value BEFORE Terraform Apply
+      # The Cloud Run service depends on the secret having a version when it's created/updated
+      # If we create the secret version AFTER apply, Cloud Run will fail with "Secret not found"
+      - name: Ensure Secret Manager Secret Exists
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          SECRET_NAME="payments-agent-google-api-key"
+          # Check if secret exists, create if it doesn't (Terraform will create it, but this ensures it exists)
+          if ! gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            echo "Secret $SECRET_NAME does not exist, Terraform will create it during apply"
+          else
+            echo "Secret $SECRET_NAME already exists"
+          fi
+      
+      - name: Create/Update Secret Manager Secret Value
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          SECRET_NAME="payments-agent-google-api-key"
+          # Create or update secret version
+          # This MUST happen BEFORE terraform apply so Cloud Run can reference it
+          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ Secret version created/updated successfully"
+      
       - name: Terraform Apply
         working-directory: infrastructure/terraform
         env:
@@ -244,15 +271,6 @@ jobs:
           terraform apply -auto-approve \
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
-      
-      - name: Create/Update Secret Manager Secret Value
-        env:
-          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
-        run: |
-          SECRET_NAME="payments-agent-google-api-key"
-          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
-            --project=$DEV_GCP_PROJECT_ID \
-            --data-file=-
       
       # Setup Cross-Project IAM for DEV to access PRD Artifact Registry
       - name: Bootstrap Cross-Project IAM
