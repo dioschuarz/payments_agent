@@ -3,11 +3,14 @@ resource "google_cloud_run_v2_service" "service" {
   location = var.region
 
   # Ensure Cloud Run API is enabled before creating service
-  # Also ensure Artifact Registry IAM is configured before pulling image (for DEV environment)
-  depends_on = concat(
-    [google_project_service.cloud_run],
-    var.environment == "dev" ? [google_artifact_registry_repository_iam_member.artifact_registry_reader[0]] : []
-  )
+  # Also ensure service account and IAM bindings are created first
+  # (for DEV environment, this includes Artifact Registry IAM binding)
+  depends_on = [
+    google_project_service.cloud_run,
+    google_service_account.cloud_run,
+    google_secret_manager_secret_iam_member.api_key_access,
+    google_project_iam_member.cloud_run_invoker
+  ]
 
   template {
     containers {
