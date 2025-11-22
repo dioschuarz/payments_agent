@@ -74,11 +74,6 @@ resource "google_cloud_run_v2_service" "service" {
 
     service_account = google_service_account.cloud_run.email
   }
-
-  traffic {
-    percent = 100
-    latest_revision = true
-  }
 }
 
 # Allow unauthenticated access (for webhook)
