@@ -1,2 +1,13 @@
 __pycache__*
 .env
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+# Allow terraform.tfvars in environments directories (contain non-sensitive config)
+# But ignore in root directory
+terraform.tfvars
+!terraform.tfvars.example
+!infrastructure/terraform/environments/**/terraform.tfvars
