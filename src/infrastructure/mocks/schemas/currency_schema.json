@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "supported_currencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "name", "symbol"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "description": "ISO 4217 currency code"
+          },
+          "name": {
+            "type": "string",
+            "description": "Currency name"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Currency symbol (e.g., $, €, £, R$)"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Alternative names (e.g., 'dollars', 'reais', 'euros')"
+          }
+        }
+      }
+    },
+    "default_currency": {
+      "type": "string",
+      "description": "Default currency code if not specified"
+    }
+  },
+  "required": ["supported_currencies", "default_currency"]
+}
+

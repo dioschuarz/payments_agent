@@ -1,0 +1,32 @@
+# Service configuration for payments agent
+# Supports both mock (development) and http (production) service types
+
+services:
+  beneficiary:
+    type: "mock"  # or "http" for production
+    base_url: "https://api.example.com/beneficiaries"
+    timeout: 5.0
+    retries: 3
+    api_key: null  # Set via environment variable if needed
+
+  country:
+    type: "mock"  # or "http" for production
+    base_url: "https://api.example.com/countries"
+    timeout: 5.0
+    retries: 3
+    api_key: null
+
+  amount_validation:
+    type: "mock"  # or "http" for production
+    base_url: "https://api.example.com/validation/amount"
+    timeout: 5.0
+    retries: 3
+    api_key: null
+
+  delivery_method:
+    type: "mock"  # or "http" for production
+    base_url: "https://api.example.com/delivery-methods"
+    timeout: 5.0
+    retries: 3
+    api_key: null
+

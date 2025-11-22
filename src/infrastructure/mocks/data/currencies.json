@@ -1,0 +1,36 @@
+{
+  "supported_currencies": [
+    {
+      "code": "USD",
+      "name": "US Dollar",
+      "symbol": "$",
+      "aliases": ["dollars", "dollar", "usd", "us dollars"]
+    },
+    {
+      "code": "BRL",
+      "name": "Brazilian Real",
+      "symbol": "R$",
+      "aliases": ["reais", "real", "brl", "brazilian reais"]
+    },
+    {
+      "code": "EUR",
+      "name": "Euro",
+      "symbol": "€",
+      "aliases": ["euros", "euro", "eur"]
+    },
+    {
+      "code": "GBP",
+      "name": "British Pound",
+      "symbol": "£",
+      "aliases": ["pounds", "pound", "gbp", "sterling"]
+    },
+    {
+      "code": "MXN",
+      "name": "Mexican Peso",
+      "symbol": "$",
+      "aliases": ["pesos", "peso", "mxn", "mexican pesos"]
+    }
+  ],
+  "default_currency": "USD"
+}
+

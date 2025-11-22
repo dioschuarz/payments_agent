@@ -1,0 +1,31 @@
+resource "google_service_account" "cloud_run" {
+  account_id   = "${var.service_name}-sa"
+  display_name = "Cloud Run Service Account for ${var.service_name}"
+}
+
+# Grant Secret Manager access
+resource "google_secret_manager_secret_iam_member" "api_key_access" {
+  secret_id = google_secret_manager_secret.api_key.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
+# Grant Cloud Run access
+resource "google_project_iam_member" "cloud_run_invoker" {
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.cloud_run.email}"
+}
+
+# Grant Load Balancer access to Cloud Run (for Serverless NEG)
+resource "google_project_iam_member" "load_balancer_cloud_run_invoker" {
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${data.google_project.project.number}@cloudservices.gserviceaccount.com"
+}
+
+# Data source to get project number
+data "google_project" "project" {
+  project_id = var.project_id
+}
+

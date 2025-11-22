@@ -1,0 +1,240 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+env:
+  ARTIFACT_REGION: us-central1
+  ARTIFACT_REPO_NAME: docker-repo
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    
+    outputs:
+      image_tag: ${{ steps.push.outputs.image }}
+      short_sha: ${{ steps.sha.outputs.short }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+      - name: Authenticate to Google Cloud (PRD)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRD }}
+          service_account: ${{ secrets.WIF_SA_PRD }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.ARTIFACT_REGION }}-docker.pkg.dev
+      
+      - name: Build and push Docker image
+        id: push
+        env:
+          IMAGE_TAG: ${{ env.ARTIFACT_REGION }}-docker.pkg.dev/${{ vars.PRD_GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO_NAME }}/agent:${{ steps.sha.outputs.short }}
+        run: |
+          docker build -f docker/Dockerfile -t $IMAGE_TAG .
+          docker push $IMAGE_TAG
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Built and pushed: $IMAGE_TAG"
+
+  deploy-dev:
+    name: Deploy to DEV
+    needs: build
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud (DEV)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_DEV }}
+          service_account: ${{ secrets.WIF_SA_DEV }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+      
+      - name: Terraform Init
+        working-directory: infrastructure/terraform
+        run: |
+          terraform init -backend-config=environments/dev/backend.conf
+      
+      - name: Create/Update Secret Manager Secret
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          SECRET_NAME="payments-agent-google-api-key"
+          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+              --project=$DEV_GCP_PROJECT_ID \
+              --data-file=-
+          else
+            echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets create $SECRET_NAME \
+              --project=$DEV_GCP_PROJECT_ID \
+              --data-file=-
+          fi
+      
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.DEV_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.DEV_GCP_REGION }}
+          TF_VAR_environment: dev
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.DEV_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.DEV_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.DEV_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform plan \
+            -var-file=environments/dev/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}"
+      
+      - name: Terraform Apply
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.DEV_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.DEV_GCP_REGION }}
+          TF_VAR_environment: dev
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.DEV_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.DEV_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.DEV_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform apply -auto-approve \
+            -var-file=environments/dev/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}"
+      
+      - name: Output Service URL
+        working-directory: infrastructure/terraform
+        run: |
+          terraform output -raw service_url
+
+  deploy-prd:
+    name: Deploy to PRD
+    needs: build
+    if: github.event.pull_request.merged == true && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prd
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud (PRD)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRD }}
+          service_account: ${{ secrets.WIF_SA_PRD }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+      
+      - name: Terraform Init
+        working-directory: infrastructure/terraform
+        run: |
+          terraform init -backend-config=environments/prd/backend.conf
+      
+      - name: Create/Update Secret Manager Secret
+        env:
+          PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
+        run: |
+          SECRET_NAME="payments-agent-google-api-key"
+          if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+            echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+              --project=$PRD_GCP_PROJECT_ID \
+              --data-file=-
+          else
+            echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets create $SECRET_NAME \
+              --project=$PRD_GCP_PROJECT_ID \
+              --data-file=-
+          fi
+      
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
+          TF_VAR_environment: prd
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform plan \
+            -var-file=environments/prd/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}"
+      
+      - name: Terraform Apply
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
+          TF_VAR_environment: prd
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform apply -auto-approve \
+            -var-file=environments/prd/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}"
+      
+      - name: Output Service URL
+        working-directory: infrastructure/terraform
+        run: |
+          terraform output -raw service_url
+

@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    container_name: payments_agent
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash-lite}
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - SESSION_TTL_MINUTES=30
+      - CACHE_TTL_INTENT_HOURS=1
+      - CACHE_TTL_BENEFICIARY_MINUTES=30
+      - CACHE_TTL_VALIDATION_HOURS=1
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ./src:/app/src
+      - ./main.py:/app/main.py
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import http.client; conn = http.client.HTTPConnection('localhost', 8000); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+

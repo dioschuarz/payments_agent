@@ -1,0 +1,23 @@
+[
+  {
+    "code": "bank_transfer",
+    "name": "Bank Transfer",
+    "aliases": ["bank", "transfer", "wire", "banking", "account"]
+  },
+  {
+    "code": "mobile_wallet",
+    "name": "Mobile Wallet",
+    "aliases": ["mobile", "wallet", "digital wallet", "e-wallet", "phone"]
+  },
+  {
+    "code": "cash_pickup",
+    "name": "Cash Pickup",
+    "aliases": ["cash", "pickup", "pick up", "agent", "location"]
+  },
+  {
+    "code": "home_delivery",
+    "name": "Home Delivery",
+    "aliases": ["home", "delivery", "door", "doorstep", "address"]
+  }
+]
+
