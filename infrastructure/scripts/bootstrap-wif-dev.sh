@@ -46,6 +46,7 @@ gcloud services enable iam.googleapis.com --project="${PROJECT_ID}"
 gcloud services enable secretmanager.googleapis.com --project="${PROJECT_ID}"
 gcloud services enable run.googleapis.com --project="${PROJECT_ID}"
 gcloud services enable cloudresourcemanager.googleapis.com --project="${PROJECT_ID}"
+gcloud services enable dns.googleapis.com --project="${PROJECT_ID}" || true
 echo -e "${GREEN}✓ APIs enabled${NC}"
 echo ""
 
@@ -138,6 +139,10 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role="roles/resourcemanager.projectIamAdmin"
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/dns.admin"
 
 echo -e "${GREEN}✓ IAM roles granted${NC}"
 echo ""

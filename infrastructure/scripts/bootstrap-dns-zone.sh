@@ -35,12 +35,20 @@ gcloud config set project "${PROJECT_ID}" || {
   exit 1
 }
 
-# Enable required API
-echo -e "${YELLOW}Enabling Cloud DNS API...${NC}"
-gcloud services enable dns.googleapis.com --project="${PROJECT_ID}" || {
-  echo -e "${YELLOW}API may already be enabled or enabling failed${NC}"
-}
-echo -e "${GREEN}✓ Cloud DNS API enabled${NC}"
+# Note: Cloud DNS API should be enabled in the workflow before this script runs
+# This is just a verification step
+echo -e "${YELLOW}Verifying Cloud DNS API is enabled...${NC}"
+if gcloud services list --enabled --project="${PROJECT_ID}" --filter="name:dns.googleapis.com" --format="value(name)" | grep -q "dns.googleapis.com"; then
+    echo -e "${GREEN}✓ Cloud DNS API is enabled${NC}"
+else
+    echo -e "${YELLOW}⚠ Cloud DNS API may not be enabled yet${NC}"
+    echo -e "${YELLOW}  Attempting to enable...${NC}"
+    gcloud services enable dns.googleapis.com --project="${PROJECT_ID}" || {
+        echo -e "${RED}✗ Failed to enable Cloud DNS API${NC}"
+        echo -e "${YELLOW}  This may require manual enablement or additional permissions${NC}"
+        echo -e "${YELLOW}  Service account needs: roles/serviceusage.serviceUsageAdmin${NC}"
+    }
+fi
 echo ""
 
 # Check if zone already exists
@@ -95,20 +103,34 @@ echo ""
 echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
 echo ""
 
-# Grant DNS Admin permissions to GitHub Actions service account
-echo -e "${YELLOW}Granting DNS Admin permissions to GitHub Actions service account...${NC}"
-if gcloud projects get-iam-policy "${PROJECT_ID}" --flatten="bindings[].members" --filter="bindings.members:serviceAccount:${SERVICE_ACCOUNT} AND bindings.role:roles/dns.admin" --format="table(bindings.role)" &>/dev/null | grep -q "roles/dns.admin"; then
-    echo -e "${YELLOW}Service account already has roles/dns.admin, skipping${NC}"
+# Grant DNS Admin permissions to GitHub Actions service account (if not already granted)
+# Note: This should ideally be done in bootstrap-wif-dev.sh, but we check here as a fallback
+echo -e "${YELLOW}Verifying DNS Admin permissions for GitHub Actions service account...${NC}"
+# Check if service account has the role
+HAS_DNS_ADMIN=$(gcloud projects get-iam-policy "${PROJECT_ID}" \
+    --flatten="bindings[].members" \
+    --filter="bindings.members:serviceAccount:${SERVICE_ACCOUNT} AND bindings.role:roles/dns.admin" \
+    --format="value(bindings.role)" 2>/dev/null | grep -c "roles/dns.admin" || echo "0")
+
+if [ "$HAS_DNS_ADMIN" -gt 0 ]; then
+    echo -e "${GREEN}✓ Service account already has roles/dns.admin${NC}"
 else
+    echo -e "${YELLOW}⚠ Service account does not have roles/dns.admin${NC}"
+    echo -e "${YELLOW}  Attempting to grant...${NC}"
     gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
         --member="serviceAccount:${SERVICE_ACCOUNT}" \
         --role="roles/dns.admin" \
         --condition=None \
         || {
-        echo -e "${YELLOW}Failed to grant roles/dns.admin. Service account may not exist yet.${NC}"
-        echo -e "${YELLOW}Run bootstrap-wif-dev.sh first to create the service account.${NC}"
+        echo -e "${RED}✗ Failed to grant roles/dns.admin${NC}"
+        echo -e "${YELLOW}  The service account needs roles/dns.admin to create DNS zones.${NC}"
+        echo -e "${YELLOW}  Please run bootstrap-wif-dev.sh again or manually grant the role:${NC}"
+        echo -e "${YELLOW}  gcloud projects add-iam-policy-binding ${PROJECT_ID} \\${NC}"
+        echo -e "${YELLOW}    --member='serviceAccount:${SERVICE_ACCOUNT}' \\${NC}"
+        echo -e "${YELLOW}    --role='roles/dns.admin'${NC}"
+        exit 1
     }
-    echo -e "${GREEN}✓ Permissions granted${NC}"
+    echo -e "${GREEN}✓ DNS Admin permissions granted${NC}"
 fi
 echo ""
 
