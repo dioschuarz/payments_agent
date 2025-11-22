@@ -43,6 +43,9 @@ gcloud config set project "${PROJECT_ID}"
 echo -e "${YELLOW}Enabling required APIs...${NC}"
 gcloud services enable iamcredentials.googleapis.com --project="${PROJECT_ID}"
 gcloud services enable iam.googleapis.com --project="${PROJECT_ID}"
+gcloud services enable secretmanager.googleapis.com --project="${PROJECT_ID}"
+gcloud services enable run.googleapis.com --project="${PROJECT_ID}"
+gcloud services enable cloudresourcemanager.googleapis.com --project="${PROJECT_ID}"
 echo -e "${GREEN}✓ APIs enabled${NC}"
 echo ""
 
@@ -125,6 +128,31 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --role="roles/iam.serviceAccountUser"
 
 echo -e "${GREEN}✓ IAM roles granted${NC}"
+echo ""
+
+# Grant Storage permissions for Terraform state bucket
+echo -e "${YELLOW}Granting Storage permissions for Terraform state bucket...${NC}"
+DEV_BUCKET="payments-agent-wpp-dev-tf-state"
+PRD_BUCKET="payments-agent-wpp-tf-state"
+
+if [ "${PROJECT_ID}" == "payments-agent-wpp-dev" ]; then
+    BUCKET_NAME="${DEV_BUCKET}"
+elif [ "${PROJECT_ID}" == "payments-agent-wpp" ]; then
+    BUCKET_NAME="${PRD_BUCKET}"
+else
+    BUCKET_NAME=""
+fi
+
+if [ -n "${BUCKET_NAME}" ]; then
+    # Check if bucket exists before granting permissions
+    if gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${PROJECT_ID}" &>/dev/null; then
+        gsutil iam ch serviceAccount:${SERVICE_ACCOUNT_ID}@${PROJECT_ID}.iam.gserviceaccount.com:roles/storage.objectAdmin "gs://${BUCKET_NAME}"
+        echo -e "${GREEN}✓ Storage permissions granted on bucket ${BUCKET_NAME}${NC}"
+    else
+        echo -e "${YELLOW}⚠ Bucket ${BUCKET_NAME} does not exist yet. Run bootstrap-terraform-state.sh first.${NC}"
+        echo -e "${YELLOW}  Then run fix-terraform-state-permissions.sh to grant permissions.${NC}"
+    fi
+fi
 echo ""
 
 # Get provider name

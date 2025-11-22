@@ -14,8 +14,54 @@ env:
   ARTIFACT_REPO_NAME: docker-repo
 
 jobs:
+  # Bootstrap job runs first to ensure all prerequisites exist
+  # This job should run before build and deploy jobs
+  # Note: WIF must be configured manually first (one-time setup)
+  bootstrap:
+    name: Bootstrap Infrastructure
+    runs-on: ubuntu-latest
+    # Run on both environments - needs PRD for buckets and Artifact Registry, DEV for buckets
+    environment: prd
+    permissions:
+      contents: read
+      id-token: write
+    # Only run if bootstrap is needed (can be disabled after first run)
+    if: ${{ vars.RUN_BOOTSTRAP != 'false' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud (PRD)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRD }}
+          service_account: ${{ secrets.WIF_SA_PRD }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      # Bootstrap Terraform State Buckets (must exist before terraform init)
+      - name: Bootstrap Terraform State Buckets
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-terraform-state.sh
+          infrastructure/scripts/bootstrap-terraform-state.sh
+      
+      # Fix permissions on Terraform state buckets
+      - name: Fix Terraform State Bucket Permissions
+        run: |
+          chmod +x infrastructure/scripts/fix-terraform-state-permissions.sh
+          infrastructure/scripts/fix-terraform-state-permissions.sh
+      
+      # Bootstrap Artifact Registry (must exist before build)
+      - name: Bootstrap Artifact Registry
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-artifact-registry.sh
+          infrastructure/scripts/bootstrap-artifact-registry.sh
+  
   build:
     name: Build Docker Image
+    needs: bootstrap
     runs-on: ubuntu-latest
     environment: prd
     permissions:
@@ -59,7 +105,7 @@ jobs:
 
   deploy-dev:
     name: Deploy to DEV
-    needs: build
+    needs: [bootstrap, build]
     if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: dev
@@ -89,21 +135,6 @@ jobs:
         working-directory: infrastructure/terraform
         run: |
           terraform init -backend-config=environments/dev/backend.conf
-      
-      - name: Create/Update Secret Manager Secret
-        env:
-          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
-        run: |
-          SECRET_NAME="payments-agent-google-api-key"
-          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
-            echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
-              --project=$DEV_GCP_PROJECT_ID \
-              --data-file=-
-          else
-            echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets create $SECRET_NAME \
-              --project=$DEV_GCP_PROJECT_ID \
-              --data-file=-
-          fi
       
       - name: Terraform Plan
         working-directory: infrastructure/terraform
@@ -143,6 +174,21 @@ jobs:
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
       
+      - name: Create/Update Secret Manager Secret Value
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          SECRET_NAME="payments-agent-google-api-key"
+          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+      
+      # Setup Cross-Project IAM for DEV to access PRD Artifact Registry
+      - name: Bootstrap Cross-Project IAM
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-cross-project-iam.sh
+          infrastructure/scripts/bootstrap-cross-project-iam.sh || echo "Cross-project IAM already configured or Cloud Run service not ready yet"
+      
       - name: Output Service URL
         working-directory: infrastructure/terraform
         run: |
@@ -175,6 +221,13 @@ jobs:
   #       uses: hashicorp/setup-terraform@v3
   #       with:
   #         terraform_version: "1.6.0"
+  #     
+  #     - name: Enable Secret Manager API
+  #       env:
+  #         PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
+  #       run: |
+  #         gcloud services enable secretmanager.googleapis.com --project=$PRD_GCP_PROJECT_ID || true
+  #         echo "Secret Manager API enabled (or already enabled)"
   #     
   #     - name: Terraform Init
   #       working-directory: infrastructure/terraform
