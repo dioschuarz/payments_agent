@@ -31,13 +31,17 @@ COPY main.py ./
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Expose port
-EXPOSE 8000
+# Expose port (Cloud Run uses PORT env var, default 8080)
+# We expose 8080 as default, but the app will use PORT env var
+EXPOSE 8080
 
 # Health check (using Python's http.client instead of curl)
+# Note: Cloud Run doesn't use HEALTHCHECK, but we keep it for local Docker testing
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 8000); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"
+  CMD python -c "import os, http.client; port = int(os.getenv('PORT', '8080')); conn = http.client.HTTPConnection('localhost', port); conn.request('GET', '/health'); r = conn.getresponse(); exit(0 if r.status == 200 else 1)"
 
 # Run application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Cloud Run sets PORT environment variable (default: 8080)
+# Use PORT if set, otherwise default to 8080 for Cloud Run compatibility
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
 
