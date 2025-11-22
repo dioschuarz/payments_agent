@@ -146,6 +146,16 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
+      # Enable Cloud Resource Manager API - required for data.google_project
+      - name: Enable Cloud Resource Manager API
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          echo "Enabling Cloud Resource Manager API..."
+          gcloud services enable cloudresourcemanager.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          echo "✓ Cloud Resource Manager API enabled"
+      
       # Bootstrap Terraform State Bucket (DEV) - must exist before terraform init
       - name: Bootstrap Terraform State Bucket (DEV)
         env:
