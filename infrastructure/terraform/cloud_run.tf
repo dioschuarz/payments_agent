@@ -2,6 +2,11 @@ resource "google_cloud_run_v2_service" "service" {
   name     = var.service_name
   location = var.region
 
+  # --- CORREÇÃO: Ingress Control ---
+  # Isso garante que NINGUÉM acesse a URL *.run.app diretamente.
+  # Só aceita tráfego vindo do Load Balancer ou VPC interna.
+  ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+
   # Ensure Cloud Run API is enabled before creating service
   # Also ensure all prerequisites are created first:
   # - Service account and IAM bindings
@@ -109,29 +114,27 @@ resource "google_cloud_run_v2_service" "service" {
   }
 }
 
-# IMPORTANT: Remove public access - Cloud Run should only be accessible via Load Balancer
-# Access is controlled through Load Balancer IAM bindings (Cloud Services service account)
-# If you need direct access for testing, uncomment the public_access resource below
-# 
-# Allow unauthenticated access (DISABLED for security - use Load Balancer only)
-# resource "google_cloud_run_service_iam_member" "public_access" {
-#   service  = google_cloud_run_v2_service.service.name
-#   location = google_cloud_run_v2_service.service.location
-#   role     = "roles/run.invoker"
-#   member   = "allUsers"
-# }
-
-# Grant Load Balancer (Cloud Services) access to Cloud Run
-# This allows the Load Balancer to invoke Cloud Run service
-resource "google_cloud_run_service_iam_member" "load_balancer_access" {
+# --- CORREÇÃO: Permitir invocação pública (controlada pelo Ingress acima) ---
+# Removemos a restrição de IAM. Como o Ingress está restrito ao Load Balancer,
+# e o Load Balancer tem o Cloud Armor, sua segurança está garantida.
+resource "google_cloud_run_service_iam_member" "public_access" {
   service  = google_cloud_run_v2_service.service.name
   location = google_cloud_run_v2_service.service.location
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${data.google_project.project.number}@cloudservices.gserviceaccount.com"
-
-  depends_on = [
-    data.google_project.project,
-    google_cloud_run_v2_service.service
-  ]
+  member   = "allUsers"
 }
+
+# --- REMOVIDO: O bloco que dava permissão para 'cloudservices' não é necessário para 
+# Load Balancers Externos HTTP(S), ele não funciona como proxy de identidade.
+# resource "google_cloud_run_service_iam_member" "load_balancer_access" {
+#   service  = google_cloud_run_v2_service.service.name
+#   location = google_cloud_run_v2_service.service.location
+#   role     = "roles/run.invoker"
+#   member   = "serviceAccount:${data.google_project.project.number}@cloudservices.gserviceaccount.com"
+#
+#   depends_on = [
+#     data.google_project.project,
+#     google_cloud_run_v2_service.service
+#   ]
+# }
 
