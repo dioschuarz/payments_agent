@@ -33,7 +33,7 @@ resource "google_project_iam_member" "cloud_run_invoker" {
 # Only apply this if environment is "dev" (DEV needs to read from PRD Artifact Registry)
 resource "google_artifact_registry_repository_iam_member" "artifact_registry_reader" {
   count      = var.environment == "dev" ? 1 : 0
-  project    = replace(var.project_id, "-dev", "")  # Remove -dev suffix to get PRD project
+  project    = replace(var.project_id, "-dev", "") # Remove -dev suffix to get PRD project
   location   = var.region
   repository = "docker-repo"
   role       = "roles/artifactregistry.reader"
@@ -49,7 +49,7 @@ resource "google_artifact_registry_repository_iam_member" "artifact_registry_rea
 # Only apply this if environment is "dev" (DEV needs to read from PRD Artifact Registry)
 resource "google_artifact_registry_repository_iam_member" "artifact_registry_reader_service_agent" {
   count      = var.environment == "dev" ? 1 : 0
-  project    = replace(var.project_id, "-dev", "")  # Remove -dev suffix to get PRD project
+  project    = replace(var.project_id, "-dev", "") # Remove -dev suffix to get PRD project
   location   = var.region
   repository = "docker-repo"
   role       = "roles/artifactregistry.reader"
@@ -66,9 +66,9 @@ resource "google_artifact_registry_repository_iam_member" "artifact_registry_rea
 # This ensures the Artifact Registry IAM bindings are fully propagated before Cloud Run tries to pull the image
 # Only for DEV environment (when Artifact Registry IAM is needed)
 resource "time_sleep" "artifact_registry_iam_propagation" {
-  count         = var.environment == "dev" ? 1 : 0
-  create_duration = "30s"  # Wait 30 seconds for IAM propagation
-  
+  count           = var.environment == "dev" ? 1 : 0
+  create_duration = "30s" # Wait 30 seconds for IAM propagation
+
   depends_on = [
     google_artifact_registry_repository_iam_member.artifact_registry_reader[0],
     google_artifact_registry_repository_iam_member.artifact_registry_reader_service_agent[0]
@@ -89,7 +89,7 @@ resource "null_resource" "artifact_registry_iam_propagated" {
     # This ensures null_resource waits for time_sleep completion in DEV environment
     iam_propagation = var.environment == "dev" ? try(time_sleep.artifact_registry_iam_propagation[0].id, "") : ""
   }
-  
+
   depends_on = [
     google_service_account.cloud_run
     # Note: time_sleep dependency is handled via triggers above for DEV

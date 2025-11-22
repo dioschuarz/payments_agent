@@ -10,23 +10,32 @@ resource "google_cloud_run_v2_service" "service" {
   depends_on = [
     google_project_service.cloud_run,
     google_service_account.cloud_run,
-    google_secret_manager_secret.api_key,                    # Secret must exist before referencing
-    google_secret_manager_secret_iam_member.api_key_access,  # IAM binding for secret access
-    google_project_iam_member.cloud_run_invoker,             # IAM binding for Cloud Run invocation
-    null_resource.artifact_registry_iam_propagated           # For DEV: ensures IAM propagation completed
+    google_secret_manager_secret.api_key,                   # Secret must exist before referencing
+    google_secret_manager_secret_iam_member.api_key_access, # IAM binding for secret access
+    google_project_iam_member.cloud_run_invoker,            # IAM binding for Cloud Run invocation
+    null_resource.artifact_registry_iam_propagated          # For DEV: ensures IAM propagation completed
   ]
 
   # Lifecycle rules to handle existing resources and prevent accidental deletion
   lifecycle {
     # If resource already exists (409 error), import it instead of failing
     # This allows Terraform to manage resources that were created outside of Terraform
+
+    # Ignore changes to template containers env that reference secrets
+    # This prevents Terraform from trying to update Cloud Run when secret_key_ref changes
+    # The secret version is managed outside Terraform (via GitHub Actions workflow)
+    # Note: We still track changes to the secret_id itself, but not the version
     ignore_changes = [
       # Ignore changes to annotations/labels that might be added by GCP
-      # But keep essential configuration changes
+      # Ignore changes to secret_key_ref version - secret versions are managed outside Terraform
+      template[0].containers[0].env # This includes secret_key_ref which may change externally
     ]
-    
+
     # Prevent accidental deletion - uncomment if you want extra protection
     # prevent_destroy = true
+
+    # Create before destroy: Ensure new revision is created before destroying old one
+    create_before_destroy = true
   }
 
   template {
