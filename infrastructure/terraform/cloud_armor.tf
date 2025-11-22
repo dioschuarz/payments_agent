@@ -4,6 +4,9 @@ resource "google_compute_security_policy" "armor_policy" {
   name        = "${var.service_name}-armor-policy-${var.environment}"
   description = "Cloud Armor security policy for ${var.service_name} - ${var.environment} environment"
 
+  # Ensure Compute Engine API is enabled before creating security policy
+  depends_on = [google_project_service.compute]
+
   # Default rule: Allow all traffic (rate limiting will be applied by higher priority rules)
   rule {
     action   = "allow"

@@ -8,6 +8,9 @@ resource "google_compute_region_network_endpoint_group" "cloud_run_neg" {
   cloud_run {
     service = google_cloud_run_v2_service.service.name
   }
+
+  # Ensure Compute Engine API is enabled before creating NEG
+  depends_on = [google_project_service.compute]
 }
 
 # Backend Service
@@ -31,6 +34,9 @@ resource "google_compute_backend_service" "cloud_run_backend" {
     enable      = true
     sample_rate = 1.0
   }
+
+  # Ensure Compute Engine API is enabled before creating backend service
+  depends_on = [google_project_service.compute]
 }
 
 # URL Map
@@ -77,5 +83,8 @@ resource "google_compute_global_address" "cloud_run_ip" {
   name         = "${var.service_name}-ip-${var.environment}"
   address_type = "EXTERNAL"
   ip_version   = "IPV4"
+
+  # Ensure Compute Engine API is enabled before creating IP address
+  depends_on = [google_project_service.compute]
 }
 

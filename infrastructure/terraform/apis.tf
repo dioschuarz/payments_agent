@@ -36,3 +36,10 @@ resource "google_project_service" "storage" {
   disable_dependent_services = false
 }
 
+resource "google_project_service" "compute" {
+  project = var.project_id
+  service = "compute.googleapis.com"
+
+  disable_dependent_services = false
+}
+
