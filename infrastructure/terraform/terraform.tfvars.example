@@ -1,0 +1,15 @@
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+service_name = "payments-agent"
+image      = "gcr.io/your-gcp-project-id/payments-agent:latest"
+
+# Free tier configuration
+min_instances = 0
+max_instances = 10
+cpu          = "1"
+memory       = "512Mi"
+concurrency  = 80
+
+# Application configuration
+session_ttl_minutes = 30
+
