@@ -4,7 +4,8 @@ resource "google_cloud_run_v2_service" "service" {
 
   # Ensure Cloud Run API is enabled before creating service
   # Also ensure service account and IAM bindings are created first
-  # (for DEV environment, this includes Artifact Registry IAM binding)
+  # For DEV environment: wait for Artifact Registry IAM propagation (30s delay)
+  # Note: time_sleep is conditional, so it's handled via implicit dependency chain
   depends_on = [
     google_project_service.cloud_run,
     google_service_account.cloud_run,
