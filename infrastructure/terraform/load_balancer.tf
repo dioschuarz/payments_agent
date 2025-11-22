@@ -47,46 +47,48 @@ resource "google_compute_backend_service" "cloud_run_backend" {
 }
 
 # URL Map with custom domain hostname routing
-resource "google_compute_url_map" "cloud_run_url_map" {
+# Using two separate resources to ensure only one of default_service or default_url_redirect is defined
+# They are mutually exclusive in the Google provider
+
+# URL Map when custom_domain is configured (with redirect)
+resource "google_compute_url_map" "cloud_run_url_map_with_redirect" {
+  count = var.custom_domain != "" ? 1 : 0
+
   name        = "${var.service_name}-urlmap-${var.environment}"
   description = "URL map for ${var.service_name} - ${var.environment}"
 
-  # If custom domain is configured, redirect all non-matching requests to the canonical domain
+  # Redirect all non-matching requests to the canonical domain
   # This prevents access via IP address and ensures strict routing (Opção A: Redirecionamento Canônico)
-  # If no custom domain, use default service for direct Cloud Run access
-  dynamic "default_url_redirect" {
-    for_each = var.custom_domain != "" ? [1] : []
-    content {
-      https_redirect = true
-      host_redirect  = var.custom_domain
-      strip_query    = false
-    }
+  default_url_redirect {
+    https_redirect = true
+    host_redirect  = var.custom_domain
+    strip_query    = false
   }
-
-  # Only set default_service if custom_domain is NOT configured
-  # When custom_domain is set, default_url_redirect takes precedence
-  # Note: Terraform requires one of default_service or default_url_redirect, but not both
-  # The dynamic block above handles default_url_redirect when custom_domain is set
-  # This line handles default_service when custom_domain is NOT set
-  # Using try() to safely omit the attribute when custom_domain is set
-  default_service = var.custom_domain == "" ? google_compute_backend_service.cloud_run_backend.id : try(google_compute_backend_service.cloud_run_backend.id, null)
 
   # If custom domain is configured, add hostname rule
-  dynamic "host_rule" {
-    for_each = var.custom_domain != "" ? [1] : []
-    content {
-      hosts        = [var.custom_domain]
-      path_matcher = "custom-domain"
-    }
+  host_rule {
+    hosts        = [var.custom_domain]
+    path_matcher = "custom-domain"
   }
 
-  dynamic "path_matcher" {
-    for_each = var.custom_domain != "" ? [1] : []
-    content {
-      name            = "custom-domain"
-      default_service = google_compute_backend_service.cloud_run_backend.id
-    }
+  path_matcher {
+    name            = "custom-domain"
+    default_service = google_compute_backend_service.cloud_run_backend.id
   }
+}
+
+# URL Map when custom_domain is NOT configured (with default service)
+resource "google_compute_url_map" "cloud_run_url_map_with_service" {
+  count = var.custom_domain == "" ? 1 : 0
+
+  name            = "${var.service_name}-urlmap-${var.environment}"
+  description     = "URL map for ${var.service_name} - ${var.environment}"
+  default_service = google_compute_backend_service.cloud_run_backend.id
+}
+
+# Local value to reference the correct URL map (only one will exist)
+locals {
+  cloud_run_url_map_id = var.custom_domain != "" ? google_compute_url_map.cloud_run_url_map_with_redirect[0].id : google_compute_url_map.cloud_run_url_map_with_service[0].id
 }
 
 # HTTP(S) Proxy
@@ -94,7 +96,7 @@ resource "google_compute_target_https_proxy" "cloud_run_https_proxy" {
   # Enable HTTPS if SSL is enabled OR custom domain is configured (requires SSL)
   count   = (var.cloud_armor_enable_ssl || var.custom_domain != "") ? 1 : 0
   name    = "${var.service_name}-https-proxy-${var.environment}"
-  url_map = google_compute_url_map.cloud_run_url_map.id
+  url_map = local.cloud_run_url_map_id
 
   # Use managed SSL certificate if custom domain is configured, otherwise use provided certificate ID
   ssl_certificates = var.custom_domain != "" ? (
@@ -106,7 +108,8 @@ resource "google_compute_target_https_proxy" "cloud_run_https_proxy" {
   # Dependencies: URL map always required, SSL certificate if custom domain is configured
   # Note: Terraform will automatically wait for SSL certificate via ssl_certificates reference
   depends_on = [
-    google_compute_url_map.cloud_run_url_map
+    google_compute_url_map.cloud_run_url_map_with_redirect,
+    google_compute_url_map.cloud_run_url_map_with_service
   ]
 }
 
@@ -114,7 +117,7 @@ resource "google_compute_target_http_proxy" "cloud_run_http_proxy" {
   # Disable HTTP proxy if SSL is enabled OR custom domain is configured (should use HTTPS)
   count   = (var.cloud_armor_enable_ssl || var.custom_domain != "") ? 0 : 1
   name    = "${var.service_name}-http-proxy-${var.environment}"
-  url_map = google_compute_url_map.cloud_run_url_map.id
+  url_map = local.cloud_run_url_map_id
 }
 
 # Global Forwarding Rule (HTTP) - Redirect to HTTPS if custom domain is configured
