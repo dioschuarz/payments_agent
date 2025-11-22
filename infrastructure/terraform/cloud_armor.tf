@@ -7,6 +7,11 @@ resource "google_compute_security_policy" "armor_policy" {
   # Ensure Compute Engine API is enabled before creating security policy
   depends_on = [google_project_service.compute]
 
+  # Lifecycle: If policy already exists, import it instead of failing
+  lifecycle {
+    # If you get 409 error, run: terraform import google_compute_security_policy.armor_policy projects/{project_id}/global/securityPolicies/{policy_name}
+  }
+
   # Default rule: Allow all traffic (rate limiting will be applied by higher priority rules)
   rule {
     action   = "allow"

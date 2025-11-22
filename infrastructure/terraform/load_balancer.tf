@@ -9,8 +9,11 @@ resource "google_compute_region_network_endpoint_group" "cloud_run_neg" {
     service = google_cloud_run_v2_service.service.name
   }
 
-  # Ensure Compute Engine API is enabled before creating NEG
-  depends_on = [google_project_service.compute]
+  # Ensure Compute Engine API is enabled and Cloud Run service exists before creating NEG
+  depends_on = [
+    google_project_service.compute,
+    google_cloud_run_v2_service.service  # NEG needs Cloud Run service to exist first
+  ]
 }
 
 # Backend Service
@@ -35,8 +38,12 @@ resource "google_compute_backend_service" "cloud_run_backend" {
     sample_rate = 1.0
   }
 
-  # Ensure Compute Engine API is enabled before creating backend service
-  depends_on = [google_project_service.compute]
+  # Ensure Compute Engine API is enabled and all upstream resources exist before creating backend service
+  depends_on = [
+    google_project_service.compute,
+    google_compute_security_policy.armor_policy,              # Security policy must exist
+    google_compute_region_network_endpoint_group.cloud_run_neg  # NEG must exist
+  ]
 }
 
 # URL Map
