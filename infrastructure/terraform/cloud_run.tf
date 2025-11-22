@@ -109,11 +109,29 @@ resource "google_cloud_run_v2_service" "service" {
   }
 }
 
-# Allow unauthenticated access (for webhook)
-resource "google_cloud_run_service_iam_member" "public_access" {
+# IMPORTANT: Remove public access - Cloud Run should only be accessible via Load Balancer
+# Access is controlled through Load Balancer IAM bindings (Cloud Services service account)
+# If you need direct access for testing, uncomment the public_access resource below
+# 
+# Allow unauthenticated access (DISABLED for security - use Load Balancer only)
+# resource "google_cloud_run_service_iam_member" "public_access" {
+#   service  = google_cloud_run_v2_service.service.name
+#   location = google_cloud_run_v2_service.service.location
+#   role     = "roles/run.invoker"
+#   member   = "allUsers"
+# }
+
+# Grant Load Balancer (Cloud Services) access to Cloud Run
+# This allows the Load Balancer to invoke Cloud Run service
+resource "google_cloud_run_service_iam_member" "load_balancer_access" {
   service  = google_cloud_run_v2_service.service.name
   location = google_cloud_run_v2_service.service.location
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = "serviceAccount:${data.google_project.project.number}@cloudservices.gserviceaccount.com"
+
+  depends_on = [
+    data.google_project.project,
+    google_cloud_run_v2_service.service
+  ]
 }
 

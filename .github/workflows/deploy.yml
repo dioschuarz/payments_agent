@@ -78,6 +78,14 @@ jobs:
         run: |
           chmod +x infrastructure/scripts/bootstrap-artifact-registry.sh
           infrastructure/scripts/bootstrap-artifact-registry.sh
+      
+      # Bootstrap DNS Zone (DEV project - must exist before terraform apply)
+      - name: Bootstrap DNS Zone (DEV)
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-dns-zone.sh
+          infrastructure/scripts/bootstrap-dns-zone.sh
   
   build:
     name: Build Docker Image

@@ -51,3 +51,12 @@ resource "google_project_service" "artifact_registry" {
   disable_dependent_services = false
 }
 
+# Cloud DNS API - needed for automatic DNS record creation
+resource "google_project_service" "dns" {
+  count   = var.custom_domain != "" && var.dns_zone_name != "" ? 1 : 0
+  project = var.dns_project_id != "" ? var.dns_project_id : var.project_id
+  service = "dns.googleapis.com"
+
+  disable_dependent_services = false
+}
+

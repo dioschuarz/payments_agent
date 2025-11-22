@@ -87,7 +87,34 @@ Creates Artifact Registry repository in PRD project.
 
 ---
 
-### 5. bootstrap-cross-project-iam.sh
+### 5. bootstrap-dns-zone.sh
+
+Creates DNS zone in Cloud DNS (DEV project) for custom domain management.
+
+**Usage:**
+```bash
+./scripts/bootstrap-dns-zone.sh
+```
+
+**What it does:**
+- Creates DNS zone `dscorpsolutions-zone` for `dscorpsolutions.com` domain
+- Enables Cloud DNS API in DEV project
+- Grants `roles/dns.admin` to GitHub Actions service account
+- Displays nameservers for domain registrar configuration
+
+**⚠️ IMPORTANT:** 
+- This creates the DNS zone once (shared by all agents)
+- Individual DNS A records are created automatically by Terraform per agent
+- After running, configure nameservers in your domain registrar (Google Domains)
+
+**Output:** 
+- DNS zone created in Cloud DNS
+- Nameservers displayed (for manual configuration in domain registrar)
+- Permissions configured for GitHub Actions service account
+
+---
+
+### 6. bootstrap-cross-project-iam.sh
 
 Sets up cross-project IAM for DEV Cloud Run SA to access PRD Artifact Registry.
 
@@ -131,10 +158,12 @@ Execute scripts in this exact order:
 2. `bootstrap-wif-dev.sh`
 3. `bootstrap-wif-prd.sh`
 4. `bootstrap-artifact-registry.sh`
-5. `setup-github-env-vars.sh`
-6. Configure GitHub (manual step)
-7. First Terraform apply
-8. `bootstrap-cross-project-iam.sh`
+5. `bootstrap-dns-zone.sh` (optional - only if using custom domain)
+6. `setup-github-env-vars.sh`
+7. Configure GitHub (manual step)
+8. Configure nameservers in domain registrar (if DNS zone was created)
+9. First Terraform apply
+10. `bootstrap-cross-project-iam.sh`
 
 ## Prerequisites
 
