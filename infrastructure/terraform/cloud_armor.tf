@@ -34,6 +34,7 @@ resource "google_compute_security_policy" "armor_policy" {
       conform_action = "allow"
       exceed_action  = "deny(429)"
       enforce_on_key = "IP"
+      ban_duration_sec = 60  # Ban for 60 seconds when rate limit is exceeded
       
       # Rate limiting thresholds (configurable per environment)
       rate_limit_threshold {
