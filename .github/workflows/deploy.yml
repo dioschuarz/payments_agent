@@ -78,14 +78,6 @@ jobs:
         run: |
           chmod +x infrastructure/scripts/bootstrap-artifact-registry.sh
           infrastructure/scripts/bootstrap-artifact-registry.sh
-      
-      # Bootstrap DNS Zone (DEV project - must exist before terraform apply)
-      - name: Bootstrap DNS Zone (DEV)
-        env:
-          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
-        run: |
-          chmod +x infrastructure/scripts/bootstrap-dns-zone.sh
-          infrastructure/scripts/bootstrap-dns-zone.sh
   
   build:
     name: Build Docker Image
@@ -170,6 +162,8 @@ jobs:
             --project="${DEV_GCP_PROJECT_ID}" || true
           gcloud services enable secretmanager.googleapis.com \
             --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable dns.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
           echo "✓ Required APIs enabled"
           echo "Waiting 10 seconds for API propagation..."
           sleep 10
@@ -204,6 +198,16 @@ jobs:
           SERVICE_ACCOUNT="github-actions-sa@${DEV_GCP_PROJECT_ID}.iam.gserviceaccount.com"
           gsutil iam ch serviceAccount:${SERVICE_ACCOUNT}:roles/storage.objectAdmin "gs://${BUCKET_NAME}" || true
           echo "✓ Permissions granted on ${BUCKET_NAME}"
+      
+      # Bootstrap DNS Zone (DEV project - must exist before terraform apply)
+      # This creates the DNS zone once (shared by all agents)
+      # Individual DNS A records are created automatically by Terraform
+      - name: Bootstrap DNS Zone (DEV)
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-dns-zone.sh
+          infrastructure/scripts/bootstrap-dns-zone.sh
       
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
