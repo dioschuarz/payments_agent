@@ -1,6 +1,9 @@
 resource "google_service_account" "cloud_run" {
   account_id   = "${var.service_name}-sa"
   display_name = "Cloud Run Service Account for ${var.service_name}"
+
+  # Ensure IAM API is enabled before creating service account
+  depends_on = [google_project_service.iam]
 }
 
 # Grant Secret Manager access
