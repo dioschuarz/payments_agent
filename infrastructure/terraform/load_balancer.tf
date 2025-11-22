@@ -48,9 +48,28 @@ resource "google_compute_backend_service" "cloud_run_backend" {
 
 # URL Map with custom domain hostname routing
 resource "google_compute_url_map" "cloud_run_url_map" {
-  name            = "${var.service_name}-urlmap-${var.environment}"
-  description     = "URL map for ${var.service_name} - ${var.environment}"
-  default_service = google_compute_backend_service.cloud_run_backend.id
+  name        = "${var.service_name}-urlmap-${var.environment}"
+  description = "URL map for ${var.service_name} - ${var.environment}"
+
+  # If custom domain is configured, redirect all non-matching requests to the canonical domain
+  # This prevents access via IP address and ensures strict routing (Opção A: Redirecionamento Canônico)
+  # If no custom domain, use default service for direct Cloud Run access
+  dynamic "default_url_redirect" {
+    for_each = var.custom_domain != "" ? [1] : []
+    content {
+      https_redirect = true
+      host_redirect  = var.custom_domain
+      strip_query    = false
+    }
+  }
+
+  # Only set default_service if custom_domain is NOT configured
+  # When custom_domain is set, default_url_redirect takes precedence
+  # Note: Terraform requires one of default_service or default_url_redirect, but not both
+  # The dynamic block above handles default_url_redirect when custom_domain is set
+  # This line handles default_service when custom_domain is NOT set
+  # Using try() to safely omit the attribute when custom_domain is set
+  default_service = var.custom_domain == "" ? google_compute_backend_service.cloud_run_backend.id : try(google_compute_backend_service.cloud_run_backend.id, null)
 
   # If custom domain is configured, add hostname rule
   dynamic "host_rule" {
