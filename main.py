@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from src.infrastructure.ai.agents.adk_orchestrator import ADKOrchestrator
 from src.infrastructure.config.service_factory import ServiceFactory
@@ -96,8 +97,8 @@ app.include_router(ui_router)
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
-    return {"message": "Send Money Agent API", "version": "0.1.0"}
+    """Root endpoint - redirects to demo UI."""
+    return RedirectResponse(url="/demo/")
 
 
 if __name__ == "__main__":
