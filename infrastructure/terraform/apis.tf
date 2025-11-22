@@ -43,3 +43,11 @@ resource "google_project_service" "compute" {
   disable_dependent_services = false
 }
 
+# Artifact Registry API - needed even for DEV (for cross-project image pulls)
+resource "google_project_service" "artifact_registry" {
+  project = var.project_id
+  service = "artifactregistry.googleapis.com"
+
+  disable_dependent_services = false
+}
+

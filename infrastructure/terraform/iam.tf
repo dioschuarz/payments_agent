@@ -34,6 +34,18 @@ resource "google_artifact_registry_repository_iam_member" "artifact_registry_rea
   depends_on = [google_service_account.cloud_run]
 }
 
+# Wait for IAM propagation (cross-project IAM can take time to propagate)
+# This ensures the Artifact Registry IAM binding is fully propagated before Cloud Run tries to pull the image
+# Only for DEV environment (when Artifact Registry IAM is needed)
+resource "time_sleep" "artifact_registry_iam_propagation" {
+  count         = var.environment == "dev" ? 1 : 0
+  create_duration = "30s"  # Wait 30 seconds for IAM propagation
+  
+  depends_on = [
+    google_artifact_registry_repository_iam_member.artifact_registry_reader[0]
+  ]
+}
+
 # Grant Load Balancer access to Cloud Run (for Serverless NEG)
 # NOTE: Cloud Services service account is created automatically by GCP when you use certain services
 # If it doesn't exist yet, this will fail. In that case, create it manually or let GCP create it first.

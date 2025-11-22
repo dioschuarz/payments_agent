@@ -156,7 +156,15 @@ jobs:
             --project="${DEV_GCP_PROJECT_ID}" || true
           gcloud services enable compute.googleapis.com \
             --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable artifactregistry.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable run.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable secretmanager.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
           echo "✓ Required APIs enabled"
+          echo "Waiting 10 seconds for API propagation..."
+          sleep 10
       
       # Bootstrap Terraform State Bucket (DEV) - must exist before terraform init
       - name: Bootstrap Terraform State Bucket (DEV)
