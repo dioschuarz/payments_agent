@@ -2,7 +2,7 @@ resource "google_secret_manager_secret" "api_key" {
   secret_id = "${var.service_name}-google-api-key"
 
   replication {
-    automatic {}
+    auto {}
   }
 
   # Ensure Secret Manager API is enabled before creating secrets
