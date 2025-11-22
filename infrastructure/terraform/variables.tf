@@ -141,7 +141,25 @@ variable "cloud_armor_enable_ssl" {
 }
 
 variable "cloud_armor_ssl_certificate_id" {
-  description = "SSL certificate ID for HTTPS (if cloud_armor_enable_ssl is true)"
+  description = "SSL certificate ID for HTTPS (if cloud_armor_enable_ssl is true and custom_domain is not set)"
+  type        = string
+  default     = ""
+}
+
+variable "custom_domain" {
+  description = "Custom domain name for the service (e.g., api.example.com). If set, enables HTTPS with managed SSL certificate and blocks direct Cloud Run access."
+  type        = string
+  default     = ""
+}
+
+variable "dns_zone_name" {
+  description = "Cloud DNS zone name where the custom domain will be configured (e.g., 'dscorpsolutions-zone'). Leave empty if DNS is managed externally. If set, Terraform will automatically create DNS record A pointing to Load Balancer IP."
+  type        = string
+  default     = ""
+}
+
+variable "dns_project_id" {
+  description = "GCP Project ID where DNS zone is located (if different from project_id). Defaults to project_id. Useful if DNS zone is in a shared project."
   type        = string
   default     = ""
 }

@@ -46,30 +46,62 @@ resource "google_compute_backend_service" "cloud_run_backend" {
   ]
 }
 
-# URL Map
+# URL Map with custom domain hostname routing
 resource "google_compute_url_map" "cloud_run_url_map" {
   name            = "${var.service_name}-urlmap-${var.environment}"
   description     = "URL map for ${var.service_name} - ${var.environment}"
   default_service = google_compute_backend_service.cloud_run_backend.id
+
+  # If custom domain is configured, add hostname rule
+  dynamic "host_rule" {
+    for_each = var.custom_domain != "" ? [1] : []
+    content {
+      hosts        = [var.custom_domain]
+      path_matcher = "custom-domain"
+    }
+  }
+
+  dynamic "path_matcher" {
+    for_each = var.custom_domain != "" ? [1] : []
+    content {
+      name            = "custom-domain"
+      default_service = google_compute_backend_service.cloud_run_backend.id
+    }
+  }
 }
 
 # HTTP(S) Proxy
 resource "google_compute_target_https_proxy" "cloud_run_https_proxy" {
-  count            = var.cloud_armor_enable_ssl ? 1 : 0
-  name             = "${var.service_name}-https-proxy-${var.environment}"
-  url_map          = google_compute_url_map.cloud_run_url_map.id
-  ssl_certificates = var.cloud_armor_ssl_certificate_id != "" ? [var.cloud_armor_ssl_certificate_id] : []
+  # Enable HTTPS if SSL is enabled OR custom domain is configured (requires SSL)
+  count   = (var.cloud_armor_enable_ssl || var.custom_domain != "") ? 1 : 0
+  name    = "${var.service_name}-https-proxy-${var.environment}"
+  url_map = google_compute_url_map.cloud_run_url_map.id
+
+  # Use managed SSL certificate if custom domain is configured, otherwise use provided certificate ID
+  ssl_certificates = var.custom_domain != "" ? (
+    [google_compute_managed_ssl_certificate.domain_cert[0].id]
+    ) : (
+    var.cloud_armor_ssl_certificate_id != "" ? [var.cloud_armor_ssl_certificate_id] : []
+  )
+
+  # Dependencies: URL map always required, SSL certificate if custom domain is configured
+  # Note: Terraform will automatically wait for SSL certificate via ssl_certificates reference
+  depends_on = [
+    google_compute_url_map.cloud_run_url_map
+  ]
 }
 
 resource "google_compute_target_http_proxy" "cloud_run_http_proxy" {
-  count   = var.cloud_armor_enable_ssl ? 0 : 1
+  # Disable HTTP proxy if SSL is enabled OR custom domain is configured (should use HTTPS)
+  count   = (var.cloud_armor_enable_ssl || var.custom_domain != "") ? 0 : 1
   name    = "${var.service_name}-http-proxy-${var.environment}"
   url_map = google_compute_url_map.cloud_run_url_map.id
 }
 
-# Global Forwarding Rule (HTTP)
+# Global Forwarding Rule (HTTP) - Redirect to HTTPS if custom domain is configured
 resource "google_compute_global_forwarding_rule" "cloud_run_http_forwarding" {
-  count      = var.cloud_armor_enable_ssl ? 0 : 1
+  # Disable HTTP forwarding if SSL is enabled OR custom domain is configured
+  count      = (var.cloud_armor_enable_ssl || var.custom_domain != "") ? 0 : 1
   name       = "${var.service_name}-http-forwarding-${var.environment}"
   target     = google_compute_target_http_proxy.cloud_run_http_proxy[0].id
   port_range = "80"
@@ -78,7 +110,8 @@ resource "google_compute_global_forwarding_rule" "cloud_run_http_forwarding" {
 
 # Global Forwarding Rule (HTTPS)
 resource "google_compute_global_forwarding_rule" "cloud_run_https_forwarding" {
-  count      = var.cloud_armor_enable_ssl ? 1 : 0
+  # Enable HTTPS forwarding if SSL is enabled OR custom domain is configured
+  count      = (var.cloud_armor_enable_ssl || var.custom_domain != "") ? 1 : 0
   name       = "${var.service_name}-https-forwarding-${var.environment}"
   target     = google_compute_target_https_proxy.cloud_run_https_proxy[0].id
   port_range = "443"
