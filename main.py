@@ -15,6 +15,7 @@ from src.infrastructure.validators.delivery_method_validator import DeliveryMeth
 from src.presentation.agent_flow import AgentFlow
 from src.presentation.api.middleware import ErrorHandlingMiddleware, LoggingMiddleware
 from src.presentation.api.routes import router
+from src.presentation.ui.routes import router as ui_router
 
 # Load environment variables
 load_dotenv()
@@ -88,6 +89,9 @@ set_agent_flow(agent_flow)
 
 # Include routes
 app.include_router(router)
+
+# Include UI routes
+app.include_router(ui_router)
 
 
 @app.get("/")
