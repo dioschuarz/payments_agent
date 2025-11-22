@@ -41,17 +41,37 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
       
-      # Bootstrap Terraform State Buckets (must exist before terraform init)
-      - name: Bootstrap Terraform State Buckets
+      # Bootstrap Terraform State Buckets (PRD only - this job uses PRD environment)
+      # DEV bucket will be created in deploy-dev job
+      - name: Bootstrap Terraform State Bucket (PRD)
+        env:
+          PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
         run: |
-          chmod +x infrastructure/scripts/bootstrap-terraform-state.sh
-          infrastructure/scripts/bootstrap-terraform-state.sh
-      
-      # Fix permissions on Terraform state buckets
-      - name: Fix Terraform State Bucket Permissions
-        run: |
-          chmod +x infrastructure/scripts/fix-terraform-state-permissions.sh
-          infrastructure/scripts/fix-terraform-state-permissions.sh
+          BUCKET_NAME="payments-agent-wpp-tf-state"
+          REGION="us-central1"
+          
+          # Check if bucket already exists
+          if gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${PRD_GCP_PROJECT_ID}" &>/dev/null; then
+            echo "Bucket ${BUCKET_NAME} already exists, skipping creation"
+          else
+            # Create bucket
+            gcloud storage buckets create "gs://${BUCKET_NAME}" \
+              --project="${PRD_GCP_PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access
+            echo "✓ Bucket ${BUCKET_NAME} created"
+          fi
+          
+          # Enable versioning
+          gcloud storage buckets update "gs://${BUCKET_NAME}" \
+            --project="${PRD_GCP_PROJECT_ID}" \
+            --versioning
+          echo "✓ Versioning enabled on ${BUCKET_NAME}"
+          
+          # Grant permissions to service account
+          SERVICE_ACCOUNT="github-actions-sa@${PRD_GCP_PROJECT_ID}.iam.gserviceaccount.com"
+          gsutil iam ch serviceAccount:${SERVICE_ACCOUNT}:roles/storage.objectAdmin "gs://${BUCKET_NAME}" || true
+          echo "✓ Permissions granted on ${BUCKET_NAME}"
       
       # Bootstrap Artifact Registry (must exist before build)
       - name: Bootstrap Artifact Registry
@@ -125,6 +145,37 @@ jobs:
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+      
+      # Bootstrap Terraform State Bucket (DEV) - must exist before terraform init
+      - name: Bootstrap Terraform State Bucket (DEV)
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          BUCKET_NAME="payments-agent-wpp-dev-tf-state"
+          REGION="us-central1"
+          
+          # Check if bucket already exists
+          if gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${DEV_GCP_PROJECT_ID}" &>/dev/null; then
+            echo "Bucket ${BUCKET_NAME} already exists, skipping creation"
+          else
+            # Create bucket
+            gcloud storage buckets create "gs://${BUCKET_NAME}" \
+              --project="${DEV_GCP_PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access
+            echo "✓ Bucket ${BUCKET_NAME} created"
+          fi
+          
+          # Enable versioning
+          gcloud storage buckets update "gs://${BUCKET_NAME}" \
+            --project="${DEV_GCP_PROJECT_ID}" \
+            --versioning
+          echo "✓ Versioning enabled on ${BUCKET_NAME}"
+          
+          # Grant permissions to service account
+          SERVICE_ACCOUNT="github-actions-sa@${DEV_GCP_PROJECT_ID}.iam.gserviceaccount.com"
+          gsutil iam ch serviceAccount:${SERVICE_ACCOUNT}:roles/storage.objectAdmin "gs://${BUCKET_NAME}" || true
+          echo "✓ Permissions granted on ${BUCKET_NAME}"
       
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
