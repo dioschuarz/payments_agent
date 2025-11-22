@@ -50,6 +50,13 @@ resource "google_compute_backend_service" "cloud_run_backend" {
 # Using two separate resources to ensure only one of default_service or default_url_redirect is defined
 # They are mutually exclusive in the Google provider
 
+# Moved block to handle migration from old resource name to new conditional resources
+# This prevents Terraform from trying to destroy and recreate the URL map
+moved {
+  from = google_compute_url_map.cloud_run_url_map
+  to   = google_compute_url_map.cloud_run_url_map_with_redirect[0]
+}
+
 # URL Map when custom_domain is configured (with redirect)
 resource "google_compute_url_map" "cloud_run_url_map_with_redirect" {
   count = var.custom_domain != "" ? 1 : 0
