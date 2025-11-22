@@ -54,7 +54,7 @@ Summary:
 - Beneficiary: [name]
 - Amount: [amount] [currency]
 - Country: [country name]
-- Delivery Method: [method]
+- Delivery Method: [method] (use the formatted display name, e.g., "Bank Transfer", "Mobile Wallet", "Cash Pickup", "Home Delivery")
 
 Is this correct?"
 

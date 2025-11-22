@@ -6,7 +6,7 @@ resource "google_service_account" "cloud_run" {
   depends_on = [google_project_service.iam]
 }
 
-# Grant Secret Manager access
+# Grant Secret Manager access for Google API Key
 resource "google_secret_manager_secret_iam_member" "api_key_access" {
   secret_id = google_secret_manager_secret.api_key.secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -15,6 +15,19 @@ resource "google_secret_manager_secret_iam_member" "api_key_access" {
   # Ensure both secret and service account exist before granting access
   depends_on = [
     google_secret_manager_secret.api_key,
+    google_service_account.cloud_run
+  ]
+}
+
+# Grant Secret Manager access for Meta App Secret
+resource "google_secret_manager_secret_iam_member" "meta_app_secret_access" {
+  secret_id = google_secret_manager_secret.meta_app_secret.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
+
+  # Ensure both secret and service account exist before granting access
+  depends_on = [
+    google_secret_manager_secret.meta_app_secret,
     google_service_account.cloud_run
   ]
 }

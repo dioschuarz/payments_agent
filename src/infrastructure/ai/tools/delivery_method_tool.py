@@ -32,7 +32,7 @@ def create_delivery_method_tool(validator: DeliveryMethodValidator) -> FunctionT
             return {
                 "valid": True,
                 "method": {
-                    "method": method.method.value,
+                    "method": str(method),
                     "provider": method.provider,
                 },
             }
