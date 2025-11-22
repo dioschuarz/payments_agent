@@ -2,6 +2,9 @@ resource "google_cloud_run_v2_service" "service" {
   name     = var.service_name
   location = var.region
 
+  # Ensure Cloud Run API is enabled before creating service
+  depends_on = [google_project_service.cloud_run]
+
   template {
     containers {
       image = var.image

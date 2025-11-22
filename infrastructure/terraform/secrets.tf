@@ -4,6 +4,9 @@ resource "google_secret_manager_secret" "api_key" {
   replication {
     automatic = true
   }
+
+  # Ensure Secret Manager API is enabled before creating secrets
+  depends_on = [google_project_service.secret_manager]
 }
 
 # Note: Secret value should be set manually or via CI/CD
