@@ -1,0 +1,75 @@
+name: Unlock Terraform State
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to unlock (dev or prd)'
+        required: true
+        type: choice
+        options:
+          - dev
+          - prd
+      lock_id:
+        description: 'Lock ID to unlock (from Terraform error message)'
+        required: true
+        type: string
+
+jobs:
+  unlock:
+    name: Unlock Terraform State
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets[format('WIF_PROVIDER_{0}', github.event.inputs.environment == 'dev' && 'DEV' || 'PRD')] }}
+          service_account: ${{ secrets[format('WIF_SA_{0}', github.event.inputs.environment == 'dev' && 'DEV' || 'PRD')] }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+      
+      - name: Terraform Init
+        working-directory: infrastructure/terraform
+        env:
+          ENV_UPPER: ${{ github.event.inputs.environment == 'dev' && 'DEV' || 'PRD' }}
+        run: |
+          terraform init -backend-config=environments/${{ github.event.inputs.environment }}/backend.conf
+      
+      - name: Force Unlock Terraform State
+        working-directory: infrastructure/terraform
+        env:
+          LOCK_ID: ${{ github.event.inputs.lock_id }}
+        run: |
+          echo "⚠ WARNING: This will force unlock the Terraform state!"
+          echo "Lock ID: ${LOCK_ID}"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo ""
+          echo "Only proceed if you're absolutely sure no Terraform operation is running."
+          echo ""
+          
+          # Force unlock using the provided lock ID
+          # The -force flag bypasses the confirmation prompt
+          terraform force-unlock -force "${LOCK_ID}" || {
+            echo "❌ Failed to unlock. Please verify:"
+            echo "1. The lock ID is correct"
+            echo "2. No Terraform operation is currently running"
+            echo "3. You have the necessary permissions"
+            exit 1
+          }
+          
+          echo "✅ Lock successfully released!"
+
