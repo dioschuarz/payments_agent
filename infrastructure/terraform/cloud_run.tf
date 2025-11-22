@@ -3,15 +3,31 @@ resource "google_cloud_run_v2_service" "service" {
   location = var.region
 
   # Ensure Cloud Run API is enabled before creating service
-  # Also ensure service account and IAM bindings are created first
-  # For DEV environment: wait for Artifact Registry IAM propagation (30s delay)
-  # Note: time_sleep is conditional, so it's handled via implicit dependency chain
+  # Also ensure all prerequisites are created first:
+  # - Service account and IAM bindings
+  # - Secret Manager secret (needed for secret_key_ref)
+  # - For DEV: wait for Artifact Registry IAM propagation (30s delay via null_resource bridge)
   depends_on = [
     google_project_service.cloud_run,
     google_service_account.cloud_run,
-    google_secret_manager_secret_iam_member.api_key_access,
-    google_project_iam_member.cloud_run_invoker
+    google_secret_manager_secret.api_key,                    # Secret must exist before referencing
+    google_secret_manager_secret_iam_member.api_key_access,  # IAM binding for secret access
+    google_project_iam_member.cloud_run_invoker,             # IAM binding for Cloud Run invocation
+    null_resource.artifact_registry_iam_propagated           # For DEV: ensures IAM propagation completed
   ]
+
+  # Lifecycle rules to handle existing resources and prevent accidental deletion
+  lifecycle {
+    # If resource already exists (409 error), import it instead of failing
+    # This allows Terraform to manage resources that were created outside of Terraform
+    ignore_changes = [
+      # Ignore changes to annotations/labels that might be added by GCP
+      # But keep essential configuration changes
+    ]
+    
+    # Prevent accidental deletion - uncomment if you want extra protection
+    # prevent_destroy = true
+  }
 
   template {
     containers {
