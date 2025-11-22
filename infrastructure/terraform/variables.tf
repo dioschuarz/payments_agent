@@ -27,9 +27,9 @@ variable "min_instances" {
 }
 
 variable "max_instances" {
-  description = "Maximum number of instances"
+  description = "Maximum number of instances (Safety Lock - Protection against volumetric attacks)"
   type        = number
-  default     = 10
+  default     = 1
 }
 
 variable "cpu" {
@@ -162,5 +162,18 @@ variable "dns_project_id" {
   description = "GCP Project ID where DNS zone is located (if different from project_id). Defaults to project_id. Useful if DNS zone is in a shared project."
   type        = string
   default     = ""
+}
+
+variable "enable_strict_meta_checks" {
+  description = "Enable strict Meta webhook checks (blocks non-FacebookPlatform User-Agents). Set to false for Demo mode, true for Production."
+  type        = bool
+  default     = false
+}
+
+variable "demo_access_code" {
+  description = "Access code required for demo requests (simple env var, not a secret)"
+  type        = string
+  default     = "WPP-DEMO"
+  sensitive   = true
 }
 

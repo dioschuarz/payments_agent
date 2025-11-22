@@ -430,6 +430,27 @@
         }
 
         /* Input area */
+        .access-code-container {
+            background-color: #202c33;
+            padding: 8px 16px;
+            border-bottom: 1px solid #313d45;
+        }
+
+        .access-code-input {
+            width: 100%;
+            background-color: #2a3942;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 14px;
+            color: #e9edef;
+            outline: none;
+        }
+
+        .access-code-input::placeholder {
+            color: #8696a0;
+        }
+
         .input-area {
             background-color: #202c33;
             padding: 8px 16px;
@@ -613,6 +634,17 @@
                 </div>
             </div>
 
+            <!-- Access Code Input -->
+            <div class="access-code-container">
+                <input 
+                    type="text" 
+                    class="access-code-input" 
+                    id="accessCodeInput" 
+                    placeholder="Enter access code"
+                    autocomplete="off"
+                />
+            </div>
+
             <!-- Área de mensagens -->
             <div class="messages-area" id="messagesArea">
                 <div class="date-separator" id="dateSeparator"></div>
@@ -640,13 +672,14 @@
     <script>
         // Configuração
         const API_BASE_URL = window.location.origin;
-        const WEBHOOK_ENDPOINT = `${API_BASE_URL}/webhook/whatsapp`;
+        const DEMO_SEND_ENDPOINT = `${API_BASE_URL}/demo/send`;
         let currentPhoneNumber = "+5511999999999";
         let isLoading = false;
 
         // Elementos DOM
         const messagesArea = document.getElementById('messagesArea');
         const messageInput = document.getElementById('messageInput');
+        const accessCodeInput = document.getElementById('accessCodeInput');
         const sendButton = document.getElementById('sendButton');
         const dateSeparator = document.getElementById('dateSeparator');
         const lastMessageTime = document.getElementById('lastMessageTime');
@@ -695,8 +728,14 @@
         // Enviar mensagem
         async function sendMessage() {
             const messageText = messageInput.value.trim();
+            const accessCode = accessCodeInput.value.trim();
             
             if (!messageText || isLoading) {
+                return;
+            }
+
+            if (!accessCode) {
+                showErrorMessage('Please enter access code');
                 return;
             }
 
@@ -716,22 +755,30 @@
                 sendButton.style.opacity = '0.5';
                 sendButton.style.cursor = 'not-allowed';
 
-                const response = await fetch(WEBHOOK_ENDPOINT, {
+                // Montar payload (sem criptografia no JS)
+                const payload = {
+                    from_number: currentPhoneNumber,
+                    message: messageText,
+                    message_id: null,
+                    timestamp: new Date().toISOString()
+                };
+
+                // Enviar para /demo/send com payload e access_code
+                const response = await fetch(DEMO_SEND_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
+                    credentials: 'include', // Incluir cookies (session_id)
                     body: JSON.stringify({
-                        from_number: currentPhoneNumber,
-                        message: messageText,
-                        message_id: null,
-                        timestamp: new Date().toISOString()
+                        payload: payload,
+                        access_code: accessCode
                     })
                 });
 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.detail || `Erro ${response.status}`);
+                    throw new Error(errorData.detail || `Error ${response.status}`);
                 }
 
                 const data = await response.json();

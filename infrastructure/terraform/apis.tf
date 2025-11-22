@@ -60,3 +60,11 @@ resource "google_project_service" "dns" {
   disable_dependent_services = false
 }
 
+# Firestore API - needed for idempotency (anti-replay protection)
+resource "google_project_service" "firestore" {
+  project = var.project_id
+  service = "firestore.googleapis.com"
+
+  disable_dependent_services = false
+}
+

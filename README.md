@@ -174,10 +174,12 @@ payments_agent/
    uv pip install -e ".[dev]"
    ```
 
-2. **Set up environment variables**:
+2. **Set up environment variables** (create `.env` file):
    ```bash
-   cp .env.example .env
-   # Edit .env and add your GOOGLE_API_KEY
+   GOOGLE_API_KEY=your-google-api-key
+   META_APP_SECRET=chave-ficticia-123  # Temporary secret for demo
+   DEMO_ACCESS_CODE=WPP-DEMO  # Access code for demo requests
+   GCP_PROJECT_ID=your-project-id  # Optional, required for Firestore idempotency
    ```
 
 3. **Run the application**:
@@ -197,13 +199,22 @@ payments_agent/
 
 ### Docker Development
 
-1. **Build and run with Docker Compose**:
+1. **Set up environment variables** (create `.env` file in project root):
+   ```bash
+   GOOGLE_API_KEY=your-google-api-key
+   META_APP_SECRET=chave-ficticia-123  # Temporary secret for demo
+   DEMO_ACCESS_CODE=WPP-DEMO  # Access code for demo requests
+   GCP_PROJECT_ID=your-project-id  # Optional, required for Firestore idempotency
+   ```
+
+2. **Build and run with Docker Compose**:
    ```bash
    docker-compose up --build
    ```
 
-2. **Access the API**:
+3. **Access the API**:
    - API: http://localhost:8000
+   - Demo UI: http://localhost:8000/demo/
    - Health check: http://localhost:8000/health
    - API docs: http://localhost:8000/docs
 

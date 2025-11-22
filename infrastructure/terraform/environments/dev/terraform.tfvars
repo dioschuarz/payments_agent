@@ -18,7 +18,7 @@ dns_zone_name = "dscorpsolutions-zone" # Nome da zona DNS criada no bootstrap
 
 # Free tier configuration
 min_instances = 0
-max_instances = 10
+max_instances = 1
 cpu           = "1"
 memory        = "512Mi"
 concurrency   = 80
@@ -49,3 +49,7 @@ cloud_armor_enable_ssl = false
 # Optional: Block/Allow specific IPs
 # cloud_armor_blocked_ips = []
 # cloud_armor_allowed_ips = []
+
+# Security Configuration
+enable_strict_meta_checks = false # Set to false for Demo mode, true for Production
+demo_access_code          = "WPP-DEMO" # Access code required for demo requests

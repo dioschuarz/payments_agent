@@ -25,7 +25,54 @@ resource "google_compute_security_policy" "armor_policy" {
     description = "Default rule - Allow all traffic (rate limiting applied by higher priority rules)"
   }
 
-  # Rate limiting rule - Protect against DDoS
+  # Block tor-exit-nodes and anonymous-proxies
+  rule {
+    action   = "deny(403)"
+    priority = "900"
+    match {
+      expr {
+        expression = "origin.ip in (['tor-exit-nodes', 'anonymous-proxies'])"
+      }
+    }
+    description = "Block tor-exit-nodes and anonymous-proxies"
+  }
+
+  # Rate limit for /demo/send endpoint (anti-botnet protection)
+  rule {
+    action   = "rate_based_ban"
+    priority = "850"
+    match {
+      expr {
+        expression = "request.path == '/demo/send'"
+      }
+    }
+    rate_limit_options {
+      conform_action   = "allow"
+      exceed_action    = "deny(429)"
+      enforce_on_key   = "IP"
+      ban_duration_sec = 60 # Ban for 60 seconds when rate limit is exceeded
+
+      rate_limit_threshold {
+        count        = 5
+        interval_sec = 60
+      }
+    }
+    description = "Rate limiting for /demo/send endpoint (5 requests per minute per IP)"
+  }
+
+  # Toggle: Strict Meta checks (block non-FacebookPlatform User-Agents in production)
+  rule {
+    action   = "deny(403)"
+    priority = "800"
+    match {
+      expr {
+        expression = "var.enable_strict_meta_checks && !request.headers['user-agent'].contains('FacebookPlatform')"
+      }
+    }
+    description = "Block non-FacebookPlatform User-Agents when strict Meta checks are enabled (Production mode)"
+  }
+
+  # Rate limiting rule - Protect against DDoS (general)
   rule {
     action   = "rate_based_ban"
     priority = "1000"

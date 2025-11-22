@@ -158,11 +158,13 @@ Execute scripts in this exact order:
 2. `bootstrap-wif-dev.sh`
 3. `bootstrap-wif-prd.sh`
 4. `bootstrap-artifact-registry.sh`
-5. `bootstrap-dns-zone.sh` (optional - only if using custom domain)
-6. `setup-github-env-vars.sh`
-7. Configure GitHub (manual step)
-8. Configure nameservers in domain registrar (if DNS zone was created)
-9. First Terraform apply
+5. `setup-github-env-vars.sh`
+6. Configure GitHub (manual step)
+7. First Terraform apply (or deploy via GitHub Actions)
+8. `bootstrap-dns-zone.sh` (optional - only if using custom domain)
+   - **Note:** In GitHub Actions, this runs automatically in `deploy-dev` job after APIs are enabled
+   - If running manually, execute after first terraform apply
+9. Configure nameservers in domain registrar (if DNS zone was created)
 10. `bootstrap-cross-project-iam.sh`
 
 ## Prerequisites

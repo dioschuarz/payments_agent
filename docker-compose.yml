@@ -17,6 +17,11 @@ services:
       - CACHE_TTL_VALIDATION_HOURS=1
       - HOST=0.0.0.0
       - PORT=8000
+      # Security configuration for demo
+      - META_APP_SECRET=${META_APP_SECRET:-chave-ficticia-123}
+      - DEMO_ACCESS_CODE=${DEMO_ACCESS_CODE:-WPP-DEMO}
+      # GCP configuration (optional for local dev, required for Firestore)
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-}
     volumes:
       - ./src:/app/src
       - ./main.py:/app/main.py
