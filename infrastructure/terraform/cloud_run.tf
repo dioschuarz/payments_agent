@@ -30,15 +30,11 @@ resource "google_cloud_run_v2_service" "service" {
     # If resource already exists (409 error), import it instead of failing
     # This allows Terraform to manage resources that were created outside of Terraform
 
-    # Ignore changes to template containers env that reference secrets
-    # This prevents Terraform from trying to update Cloud Run when secret_key_ref changes
-    # The secret version is managed outside Terraform (via GitHub Actions workflow)
-    # Note: We still track changes to the secret_id itself, but not the version
-    ignore_changes = [
-      # Ignore changes to annotations/labels that might be added by GCP
-      # Ignore changes to secret_key_ref version - secret versions are managed outside Terraform
-      template[0].containers[0].env # This includes secret_key_ref which may change externally
-    ]
+    # Note: We removed ignore_changes for env to allow Terraform to update environment variables
+    # when secrets are created or updated. This ensures Cloud Run always has the correct
+    # environment variables configured, even if secrets are created after Cloud Run.
+    # Secret versions are managed outside Terraform (via GitHub Actions workflow), but
+    # the secret_key_ref configuration itself must be managed by Terraform.
 
     # Prevent accidental deletion - uncomment if you want extra protection
     # prevent_destroy = true
