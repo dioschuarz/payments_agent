@@ -238,20 +238,19 @@ jobs:
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
       
-      # Import existing secrets into Terraform state if they exist in GCP but not in state
-      # This handles the case where secrets were created manually or in a previous deployment
-      - name: Import Existing Secrets to Terraform State (if needed)
+      # Ensure secrets are in sync: if a secret exists in GCP but not in Terraform state,
+      # delete it from GCP so Terraform can create it properly (secrets created outside Terraform flow)
+      - name: Sync Secrets with Terraform State
         working-directory: infrastructure/terraform
         env:
           DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
         continue-on-error: true
         timeout-minutes: 2
         run: |
-          # Function to import secret if it exists in GCP but not in Terraform state
-          import_secret_if_needed() {
+          # Function to sync secret: if exists in GCP but not in state, delete from GCP
+          sync_secret_with_state() {
             local secret_name=$1
             local terraform_resource=$2
-            local secret_id="projects/$DEV_GCP_PROJECT_ID/secrets/$secret_name"
             
             # Check if secret exists in GCP
             if ! gcloud secrets describe "$secret_name" --project="$DEV_GCP_PROJECT_ID" &>/dev/null; then
@@ -261,23 +260,35 @@ jobs:
             
             # Check if already in Terraform state
             if terraform state show "$terraform_resource" &>/dev/null 2>&1; then
-              echo "Secret $secret_name already in Terraform state, skipping import"
+              echo "✓ Secret $secret_name already in Terraform state"
               return 0
             fi
             
-            # Import secret
-            echo "Importing $secret_name into Terraform state..."
-            if terraform import -no-color "$terraform_resource" "$secret_id" 2>&1; then
-              echo "✓ Secret $secret_name imported successfully"
-            else
-              echo "⚠ Import of $secret_name failed or not needed (Terraform will handle during apply)"
-            fi
+            # Secret exists in GCP but not in Terraform state - delete from GCP
+            echo "⚠ Secret $secret_name exists in GCP but not in Terraform state"
+            echo "⚠ Deleting secret from GCP so Terraform can create it properly..."
+            
+            # Delete all versions of the secret first
+            echo "Deleting all versions of $secret_name..."
+            gcloud secrets versions list "$secret_name" --project="$DEV_GCP_PROJECT_ID" --format="value(name)" 2>/dev/null | \
+              while read -r version; do
+                if [ -n "$version" ]; then
+                  echo "  Deleting version: $version"
+                  gcloud secrets versions destroy "$version" --secret="$secret_name" --project="$DEV_GCP_PROJECT_ID" --quiet 2>/dev/null || true
+                fi
+              done
+            
+            # Delete the secret itself
+            echo "Deleting secret $secret_name from GCP..."
+            gcloud secrets delete "$secret_name" --project="$DEV_GCP_PROJECT_ID" --quiet 2>/dev/null || true
+            
+            echo "✓ Secret $secret_name deleted from GCP - Terraform will create it in Fase 1"
           }
           
-          # Import each secret if needed
-          import_secret_if_needed "payments-agent-google-api-key" "google_secret_manager_secret.api_key"
-          import_secret_if_needed "payments-agent-meta-app-secret" "google_secret_manager_secret.meta_app_secret"
-          import_secret_if_needed "payments-agent-demo-access-code" "google_secret_manager_secret.demo_access_code"
+          # Sync all secrets with Terraform state (same treatment for all)
+          sync_secret_with_state "payments-agent-google-api-key" "google_secret_manager_secret.api_key"
+          sync_secret_with_state "payments-agent-meta-app-secret" "google_secret_manager_secret.meta_app_secret"
+          sync_secret_with_state "payments-agent-demo-access-code" "google_secret_manager_secret.demo_access_code"
       
       # Fase 1: Criar apenas secrets e IAM bindings
       - name: Terraform Apply - Create Secrets Only
