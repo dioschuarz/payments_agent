@@ -26,6 +26,7 @@ APIS=(
     "cloudresourcemanager.googleapis.com"
     "artifactregistry.googleapis.com"
     "storage.googleapis.com"
+    "firestore.googleapis.com"
 )
 
 # Function to enable APIs for a project
