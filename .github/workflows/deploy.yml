@@ -219,6 +219,23 @@ jobs:
         run: |
           terraform init -backend-config=environments/dev/backend.conf
       
+      # Import secrets that were created by GitHub Actions (if they exist)
+      - name: Import Existing Secrets (if created by GitHub Actions)
+        working-directory: infrastructure/terraform
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          # Import demo-access-code secret if it exists (created by GitHub Actions)
+          SECRET_NAME="payments-agent-demo-access-code"
+          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            echo "Secret $SECRET_NAME exists, importing into Terraform state..."
+            terraform import google_secret_manager_secret.demo_access_code \
+              projects/$DEV_GCP_PROJECT_ID/secrets/$SECRET_NAME || \
+              echo "Secret already in state or import failed (will be handled by Terraform)"
+          else
+            echo "Secret $SECRET_NAME does not exist, Terraform will create it"
+          fi
+      
       - name: Terraform Plan
         working-directory: infrastructure/terraform
         env:
@@ -279,20 +296,16 @@ jobs:
             echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
           fi
           
-          # Update DEMO_ACCESS_CODE secret (create if doesn't exist)
+          # Note: DEMO_ACCESS_CODE secret will be created by Terraform
+          # We'll update its value after Terraform Apply
           SECRET_NAME="payments-agent-demo-access-code"
           if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
             echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
               --project=$DEV_GCP_PROJECT_ID \
               --data-file=-
-            echo "✓ DEMO_ACCESS_CODE secret version created/updated"
+            echo "✓ DEMO_ACCESS_CODE secret version updated (will be imported by Terraform)"
           else
-            # Create secret if it doesn't exist (Terraform will manage it, but we need to populate the value)
-            echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets create $SECRET_NAME \
-              --project=$DEV_GCP_PROJECT_ID \
-              --replication-policy="automatic" \
-              --data-file=-
-            echo "✓ DEMO_ACCESS_CODE secret created with initial version"
+            echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
           fi
       
       - name: Terraform Apply
