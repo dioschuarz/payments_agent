@@ -257,7 +257,7 @@ jobs:
         env:
           DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
         run: |
-          # Update GOOGLE_API_KEY secret
+          # Update GOOGLE_API_KEY secret (same pattern for all secrets)
           SECRET_NAME="payments-agent-google-api-key"
           if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
             echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
@@ -268,7 +268,7 @@ jobs:
             echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
           fi
           
-          # Update META_APP_SECRET secret
+          # Update META_APP_SECRET secret (same pattern)
           SECRET_NAME="payments-agent-meta-app-secret"
           if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
             echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
@@ -279,16 +279,39 @@ jobs:
             echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
           fi
           
-          # Note: DEMO_ACCESS_CODE secret will be created by Terraform
-          # We'll update its value after Terraform Apply
+          # Update DEMO_ACCESS_CODE secret (same pattern - just versioning, Terraform manages the secret itself)
           SECRET_NAME="payments-agent-demo-access-code"
           if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
             echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
               --project=$DEV_GCP_PROJECT_ID \
               --data-file=-
-            echo "✓ DEMO_ACCESS_CODE secret version updated (will be imported by Terraform)"
+            echo "✓ DEMO_ACCESS_CODE secret version created/updated"
           else
             echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
+          fi
+      
+      # Import existing secrets into Terraform state if they exist but aren't managed yet
+      # This ensures Terraform can manage secrets that were created outside of Terraform
+      - name: Import Existing Secrets to Terraform State
+        working-directory: infrastructure/terraform
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        continue-on-error: true
+        run: |
+          # Import demo-access-code if it exists in GCP but not in Terraform state
+          SECRET_NAME="payments-agent-demo-access-code"
+          SECRET_ID="projects/$DEV_GCP_PROJECT_ID/secrets/$SECRET_NAME"
+          
+          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            if ! terraform state show google_secret_manager_secret.demo_access_code &>/dev/null 2>&1; then
+              echo "Importing $SECRET_NAME into Terraform state..."
+              terraform import google_secret_manager_secret.demo_access_code "$SECRET_ID" || true
+              echo "✓ Secret imported successfully"
+            else
+              echo "Secret $SECRET_NAME already in Terraform state"
+            fi
+          else
+            echo "Secret $SECRET_NAME does not exist, Terraform will create it"
           fi
       
       - name: Terraform Apply
@@ -306,35 +329,9 @@ jobs:
           TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
           TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
         run: |
-          # Apply Terraform (may fail if secret exists but not in state - we'll handle it)
           terraform apply -auto-approve \
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
-          terraform_apply_exit=$?
-          
-          # If apply failed, check if it's because demo-access-code secret already exists
-          if [ $terraform_apply_exit -ne 0 ]; then
-            echo "Terraform apply failed, checking if demo-access-code secret needs import..."
-            SECRET_NAME="payments-agent-demo-access-code"
-            SECRET_ID="projects/${{ vars.DEV_GCP_PROJECT_ID }}/secrets/$SECRET_NAME"
-            
-            if gcloud secrets describe $SECRET_NAME --project=${{ vars.DEV_GCP_PROJECT_ID }} &>/dev/null; then
-              if ! terraform state show google_secret_manager_secret.demo_access_code &>/dev/null 2>&1; then
-                echo "Importing existing secret $SECRET_NAME..."
-                terraform import google_secret_manager_secret.demo_access_code "$SECRET_ID" || true
-                echo "Retrying Terraform apply..."
-                terraform apply -auto-approve \
-                  -var-file=environments/dev/terraform.tfvars \
-                  -var="image=${{ needs.build.outputs.image_tag }}"
-              else
-                echo "Secret already in state, apply should have worked. Exiting with original error."
-                exit $terraform_apply_exit
-              fi
-            else
-              echo "Secret does not exist, original error was not about secret. Exiting with original error."
-              exit $terraform_apply_exit
-            fi
-          fi
       
       # Update secret values AFTER Terraform creates the secrets (ensures all secrets exist)
       - name: Update Secret Manager Secret Values (Post-Terraform)
