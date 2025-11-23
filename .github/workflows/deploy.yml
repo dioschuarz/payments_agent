@@ -253,17 +253,30 @@ jobs:
             echo "Secret $SECRET_NAME already exists"
           fi
       
-      - name: Create/Update Secret Manager Secret Value
+      - name: Create/Update Secret Manager Secret Values
         env:
           DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
         run: |
+          # Update GOOGLE_API_KEY secret
           SECRET_NAME="payments-agent-google-api-key"
-          # Create or update secret version
-          # This MUST happen BEFORE terraform apply so Cloud Run can reference it
           echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
             --project=$DEV_GCP_PROJECT_ID \
             --data-file=-
-          echo "✓ Secret version created/updated successfully"
+          echo "✓ GOOGLE_API_KEY secret version created/updated"
+          
+          # Update META_APP_SECRET secret
+          SECRET_NAME="payments-agent-meta-app-secret"
+          echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ META_APP_SECRET secret version created/updated"
+          
+          # Update DEMO_ACCESS_CODE secret
+          SECRET_NAME="payments-agent-demo-access-code"
+          echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ DEMO_ACCESS_CODE secret version created/updated"
       
       - name: Terraform Apply
         working-directory: infrastructure/terraform
@@ -335,20 +348,48 @@ jobs:
   #       run: |
   #         terraform init -backend-config=environments/prd/backend.conf
   #     
-  #     - name: Create/Update Secret Manager Secret
-  #       env:
-  #         PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
-  #       run: |
-  #         SECRET_NAME="payments-agent-google-api-key"
-  #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
-  #           echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
-  #             --project=$PRD_GCP_PROJECT_ID \
-  #             --data-file=-
-  #         else
-  #           echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets create $SECRET_NAME \
-  #             --project=$PRD_GCP_PROJECT_ID \
-  #             --data-file=-
-  #         fi
+     #     - name: Create/Update Secret Manager Secret Values
+     #       env:
+     #         PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
+     #       run: |
+     #         # Update GOOGLE_API_KEY secret
+     #         SECRET_NAME="payments-agent-google-api-key"
+     #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+     #           echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         else
+     #           echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets create $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         fi
+     #         echo "✓ GOOGLE_API_KEY secret version created/updated"
+     #         
+     #         # Update META_APP_SECRET secret
+     #         SECRET_NAME="payments-agent-meta-app-secret"
+     #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+     #           echo "${{ secrets.PRD_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         else
+     #           echo "${{ secrets.PRD_META_APP_SECRET }}" | gcloud secrets create $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         fi
+     #         echo "✓ META_APP_SECRET secret version created/updated"
+     #         
+     #         # Update DEMO_ACCESS_CODE secret
+     #         SECRET_NAME="payments-agent-demo-access-code"
+     #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+     #           echo "${{ secrets.PRD_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         else
+     #           echo "${{ secrets.PRD_DEMO_ACCESS_CODE }}" | gcloud secrets create $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         fi
+     #         echo "✓ DEMO_ACCESS_CODE secret version created/updated"
   #     
   #     - name: Terraform Plan
   #       working-directory: infrastructure/terraform

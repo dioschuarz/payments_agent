@@ -52,4 +52,6 @@ cloud_armor_enable_ssl = false
 
 # Security Configuration
 enable_strict_meta_checks = false # Set to false for Demo mode, true for Production
-demo_access_code          = "WPP-DEMO" # Access code required for demo requests
+# Note: demo_access_code is now managed via Secret Manager, not as a Terraform variable
+# The secret value should be set via GitHub Actions or manually:
+# gcloud secrets versions add payments-agent-demo-access-code --data-file=-

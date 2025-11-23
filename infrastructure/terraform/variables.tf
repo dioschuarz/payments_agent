@@ -170,10 +170,3 @@ variable "enable_strict_meta_checks" {
   default     = false
 }
 
-variable "demo_access_code" {
-  description = "Access code required for demo requests (simple env var, not a secret)"
-  type        = string
-  default     = "WPP-DEMO"
-  sensitive   = true
-}
-

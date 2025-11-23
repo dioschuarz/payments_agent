@@ -32,6 +32,19 @@ resource "google_secret_manager_secret_iam_member" "meta_app_secret_access" {
   ]
 }
 
+# Grant Secret Manager access for Demo Access Code
+resource "google_secret_manager_secret_iam_member" "demo_access_code_access" {
+  secret_id = google_secret_manager_secret.demo_access_code.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cloud_run.email}"
+
+  # Ensure both secret and service account exist before granting access
+  depends_on = [
+    google_secret_manager_secret.demo_access_code,
+    google_service_account.cloud_run
+  ]
+}
+
 # Grant Cloud Run access
 resource "google_project_iam_member" "cloud_run_invoker" {
   project = var.project_id
