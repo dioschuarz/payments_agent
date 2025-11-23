@@ -238,83 +238,49 @@ jobs:
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
       
-      # CRITICAL: Create/Update Secret Manager Secret Value BEFORE Terraform Apply
-      # The Cloud Run service depends on the secret having a version when it's created/updated
-      # If we create the secret version AFTER apply, Cloud Run will fail with "Secret not found"
-      - name: Ensure Secret Manager Secret Exists
-        env:
-          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
-        run: |
-          SECRET_NAME="payments-agent-google-api-key"
-          # Check if secret exists, create if it doesn't (Terraform will create it, but this ensures it exists)
-          if ! gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
-            echo "Secret $SECRET_NAME does not exist, Terraform will create it during apply"
-          else
-            echo "Secret $SECRET_NAME already exists"
-          fi
-      
-      - name: Create/Update Secret Manager Secret Values
-        env:
-          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
-        run: |
-          # Update GOOGLE_API_KEY secret (same pattern for all secrets)
-          SECRET_NAME="payments-agent-google-api-key"
-          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
-            echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
-              --project=$DEV_GCP_PROJECT_ID \
-              --data-file=-
-            echo "✓ GOOGLE_API_KEY secret version created/updated"
-          else
-            echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
-          fi
-          
-          # Update META_APP_SECRET secret (same pattern)
-          SECRET_NAME="payments-agent-meta-app-secret"
-          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
-            echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
-              --project=$DEV_GCP_PROJECT_ID \
-              --data-file=-
-            echo "✓ META_APP_SECRET secret version created/updated"
-          else
-            echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
-          fi
-          
-          # Update DEMO_ACCESS_CODE secret (same pattern - just versioning, Terraform manages the secret itself)
-          SECRET_NAME="payments-agent-demo-access-code"
-          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
-            echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
-              --project=$DEV_GCP_PROJECT_ID \
-              --data-file=-
-            echo "✓ DEMO_ACCESS_CODE secret version created/updated"
-          else
-            echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
-          fi
-      
-      # Import existing secrets into Terraform state if they exist but aren't managed yet
-      # This ensures Terraform can manage secrets that were created outside of Terraform
-      - name: Import Existing Secrets to Terraform State
+      # Import existing secrets into Terraform state if they exist in GCP but not in state
+      # This handles the case where secrets were created manually or in a previous deployment
+      - name: Import Existing Secrets to Terraform State (if needed)
         working-directory: infrastructure/terraform
         env:
           DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
         continue-on-error: true
+        timeout-minutes: 2
         run: |
-          # Import demo-access-code if it exists in GCP but not in Terraform state
-          SECRET_NAME="payments-agent-demo-access-code"
-          SECRET_ID="projects/$DEV_GCP_PROJECT_ID/secrets/$SECRET_NAME"
-          
-          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
-            if ! terraform state show google_secret_manager_secret.demo_access_code &>/dev/null 2>&1; then
-              echo "Importing $SECRET_NAME into Terraform state..."
-              terraform import google_secret_manager_secret.demo_access_code "$SECRET_ID" || true
-              echo "✓ Secret imported successfully"
-            else
-              echo "Secret $SECRET_NAME already in Terraform state"
+          # Function to import secret if it exists in GCP but not in Terraform state
+          import_secret_if_needed() {
+            local secret_name=$1
+            local terraform_resource=$2
+            local secret_id="projects/$DEV_GCP_PROJECT_ID/secrets/$secret_name"
+            
+            # Check if secret exists in GCP
+            if ! gcloud secrets describe "$secret_name" --project="$DEV_GCP_PROJECT_ID" &>/dev/null; then
+              echo "Secret $secret_name does not exist in GCP, Terraform will create it"
+              return 0
             fi
-          else
-            echo "Secret $SECRET_NAME does not exist, Terraform will create it"
-          fi
+            
+            # Check if already in Terraform state
+            if terraform state show "$terraform_resource" &>/dev/null 2>&1; then
+              echo "Secret $secret_name already in Terraform state, skipping import"
+              return 0
+            fi
+            
+            # Import secret
+            echo "Importing $secret_name into Terraform state..."
+            if terraform import -no-color "$terraform_resource" "$secret_id" 2>&1; then
+              echo "✓ Secret $secret_name imported successfully"
+            else
+              echo "⚠ Import of $secret_name failed or not needed (Terraform will handle during apply)"
+            fi
+          }
+          
+          # Import each secret if needed
+          import_secret_if_needed "payments-agent-google-api-key" "google_secret_manager_secret.api_key"
+          import_secret_if_needed "payments-agent-meta-app-secret" "google_secret_manager_secret.meta_app_secret"
+          import_secret_if_needed "payments-agent-demo-access-code" "google_secret_manager_secret.demo_access_code"
       
-      - name: Terraform Apply
+      # Fase 1: Criar apenas secrets e IAM bindings
+      - name: Terraform Apply - Create Secrets Only
         working-directory: infrastructure/terraform
         env:
           TF_VAR_image: ${{ needs.build.outputs.image_tag }}
@@ -329,38 +295,58 @@ jobs:
           TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
           TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
         run: |
-          terraform apply -auto-approve \
+          terraform apply \
+            -target=google_secret_manager_secret.api_key \
+            -target=google_secret_manager_secret.meta_app_secret \
+            -target=google_secret_manager_secret.demo_access_code \
+            -target=google_secret_manager_secret_iam_member.api_key_access \
+            -target=google_secret_manager_secret_iam_member.meta_app_secret_access \
+            -target=google_secret_manager_secret_iam_member.demo_access_code_access \
             -var-file=environments/dev/terraform.tfvars \
-            -var="image=${{ needs.build.outputs.image_tag }}"
+            -var="image=${{ needs.build.outputs.image_tag }}" \
+            -auto-approve
       
-      # Update secret values AFTER Terraform creates the secrets (ensures all secrets exist)
-      - name: Update Secret Manager Secret Values (Post-Terraform)
+      # Fase 2: Versionar secrets após criação
+      - name: Update Secret Manager Secret Values
         env:
           DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
         run: |
-          # Update all secrets to ensure they have the latest values from GitHub Secrets
-          # This runs after Terraform Apply to ensure all secrets exist
-          
-          # Update GOOGLE_API_KEY secret
-          SECRET_NAME="payments-agent-google-api-key"
-          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+          # Versiona todos os secrets após serem criados pelo Terraform
+          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add payments-agent-google-api-key \
             --project=$DEV_GCP_PROJECT_ID \
             --data-file=-
-          echo "✓ GOOGLE_API_KEY secret version updated"
+          echo "✓ GOOGLE_API_KEY secret version created"
           
-          # Update META_APP_SECRET secret
-          SECRET_NAME="payments-agent-meta-app-secret"
-          echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
+          echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add payments-agent-meta-app-secret \
             --project=$DEV_GCP_PROJECT_ID \
             --data-file=-
-          echo "✓ META_APP_SECRET secret version updated"
+          echo "✓ META_APP_SECRET secret version created"
           
-          # Update DEMO_ACCESS_CODE secret
-          SECRET_NAME="payments-agent-demo-access-code"
-          echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
+          echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add payments-agent-demo-access-code \
             --project=$DEV_GCP_PROJECT_ID \
             --data-file=-
-          echo "✓ DEMO_ACCESS_CODE secret version updated"
+          echo "✓ DEMO_ACCESS_CODE secret version created"
+      
+      # Fase 3: Criar Cloud Run e demais recursos
+      - name: Terraform Apply - Create Cloud Run and Other Resources
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.DEV_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.DEV_GCP_REGION }}
+          TF_VAR_environment: dev
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.DEV_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.DEV_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.DEV_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform apply \
+            -var-file=environments/dev/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}" \
+            -auto-approve
       
       # Setup Cross-Project IAM for DEV to access PRD Artifact Registry
       - name: Bootstrap Cross-Project IAM
