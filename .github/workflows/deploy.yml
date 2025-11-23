@@ -259,24 +259,41 @@ jobs:
         run: |
           # Update GOOGLE_API_KEY secret
           SECRET_NAME="payments-agent-google-api-key"
-          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
-            --project=$DEV_GCP_PROJECT_ID \
-            --data-file=-
-          echo "✓ GOOGLE_API_KEY secret version created/updated"
+          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+              --project=$DEV_GCP_PROJECT_ID \
+              --data-file=-
+            echo "✓ GOOGLE_API_KEY secret version created/updated"
+          else
+            echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
+          fi
           
           # Update META_APP_SECRET secret
           SECRET_NAME="payments-agent-meta-app-secret"
-          echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
-            --project=$DEV_GCP_PROJECT_ID \
-            --data-file=-
-          echo "✓ META_APP_SECRET secret version created/updated"
+          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
+              --project=$DEV_GCP_PROJECT_ID \
+              --data-file=-
+            echo "✓ META_APP_SECRET secret version created/updated"
+          else
+            echo "Secret $SECRET_NAME does not exist yet, Terraform will create it during apply"
+          fi
           
-          # Update DEMO_ACCESS_CODE secret
+          # Update DEMO_ACCESS_CODE secret (create if doesn't exist)
           SECRET_NAME="payments-agent-demo-access-code"
-          echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
-            --project=$DEV_GCP_PROJECT_ID \
-            --data-file=-
-          echo "✓ DEMO_ACCESS_CODE secret version created/updated"
+          if gcloud secrets describe $SECRET_NAME --project=$DEV_GCP_PROJECT_ID &>/dev/null; then
+            echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
+              --project=$DEV_GCP_PROJECT_ID \
+              --data-file=-
+            echo "✓ DEMO_ACCESS_CODE secret version created/updated"
+          else
+            # Create secret if it doesn't exist (Terraform will manage it, but we need to populate the value)
+            echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets create $SECRET_NAME \
+              --project=$DEV_GCP_PROJECT_ID \
+              --replication-policy="automatic" \
+              --data-file=-
+            echo "✓ DEMO_ACCESS_CODE secret created with initial version"
+          fi
       
       - name: Terraform Apply
         working-directory: infrastructure/terraform
@@ -296,6 +313,35 @@ jobs:
           terraform apply -auto-approve \
             -var-file=environments/dev/terraform.tfvars \
             -var="image=${{ needs.build.outputs.image_tag }}"
+      
+      # Update secret values AFTER Terraform creates the secrets (ensures all secrets exist)
+      - name: Update Secret Manager Secret Values (Post-Terraform)
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          # Update all secrets to ensure they have the latest values from GitHub Secrets
+          # This runs after Terraform Apply to ensure all secrets exist
+          
+          # Update GOOGLE_API_KEY secret
+          SECRET_NAME="payments-agent-google-api-key"
+          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ GOOGLE_API_KEY secret version updated"
+          
+          # Update META_APP_SECRET secret
+          SECRET_NAME="payments-agent-meta-app-secret"
+          echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ META_APP_SECRET secret version updated"
+          
+          # Update DEMO_ACCESS_CODE secret
+          SECRET_NAME="payments-agent-demo-access-code"
+          echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ DEMO_ACCESS_CODE secret version updated"
       
       # Setup Cross-Project IAM for DEV to access PRD Artifact Registry
       - name: Bootstrap Cross-Project IAM
