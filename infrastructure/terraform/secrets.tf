@@ -50,10 +50,11 @@ resource "google_secret_manager_secret" "demo_access_code" {
   # Ensure Secret Manager API is enabled before creating secrets
   depends_on = [google_project_service.secret_manager]
 
-  # Lifecycle: If secret already exists, import it instead of failing
+  # Lifecycle: If secret already exists (created by GitHub Actions), import it instead of failing
   lifecycle {
-    # Terraform will attempt to import if resource exists (handled by provider)
-    # If you get 409 error, run: terraform import google_secret_manager_secret.demo_access_code projects/{project_id}/secrets/{secret_id}
+    # If you get 409 error, the secret was created outside Terraform (e.g., by GitHub Actions)
+    # Run: terraform import google_secret_manager_secret.demo_access_code projects/{project_id}/secrets/payments-agent-demo-access-code
+    # Or let Terraform handle it automatically on next run
   }
 }
 
