@@ -1,0 +1,498 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+env:
+  ARTIFACT_REGION: us-central1
+  ARTIFACT_REPO_NAME: docker-repo
+
+jobs:
+  # Bootstrap job runs first to ensure all prerequisites exist
+  # This job should run before build and deploy jobs
+  # Note: WIF must be configured manually first (one-time setup)
+  bootstrap:
+    name: Bootstrap Infrastructure
+    runs-on: ubuntu-latest
+    # Run on both environments - needs PRD for buckets and Artifact Registry, DEV for buckets
+    environment: prd
+    permissions:
+      contents: read
+      id-token: write
+    # Only run if bootstrap is needed (can be disabled after first run)
+    if: ${{ vars.RUN_BOOTSTRAP != 'false' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud (PRD)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRD }}
+          service_account: ${{ secrets.WIF_SA_PRD }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      # Bootstrap Terraform State Buckets (PRD only - this job uses PRD environment)
+      # DEV bucket will be created in deploy-dev job
+      - name: Bootstrap Terraform State Bucket (PRD)
+        env:
+          PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
+        run: |
+          BUCKET_NAME="payments-agent-wpp-tf-state"
+          REGION="us-central1"
+          
+          # Check if bucket already exists
+          if gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${PRD_GCP_PROJECT_ID}" &>/dev/null; then
+            echo "Bucket ${BUCKET_NAME} already exists, skipping creation"
+          else
+            # Create bucket
+            gcloud storage buckets create "gs://${BUCKET_NAME}" \
+              --project="${PRD_GCP_PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access
+            echo "✓ Bucket ${BUCKET_NAME} created"
+          fi
+          
+          # Enable versioning
+          gcloud storage buckets update "gs://${BUCKET_NAME}" \
+            --project="${PRD_GCP_PROJECT_ID}" \
+            --versioning
+          echo "✓ Versioning enabled on ${BUCKET_NAME}"
+          
+          # Grant permissions to service account
+          SERVICE_ACCOUNT="github-actions-sa@${PRD_GCP_PROJECT_ID}.iam.gserviceaccount.com"
+          gsutil iam ch serviceAccount:${SERVICE_ACCOUNT}:roles/storage.objectAdmin "gs://${BUCKET_NAME}" || true
+          echo "✓ Permissions granted on ${BUCKET_NAME}"
+      
+      # Bootstrap Artifact Registry (must exist before build)
+      - name: Bootstrap Artifact Registry
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-artifact-registry.sh
+          infrastructure/scripts/bootstrap-artifact-registry.sh
+  
+  build:
+    name: Build Docker Image
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    environment: prd
+    permissions:
+      contents: read
+      id-token: write
+    
+    outputs:
+      image_tag: ${{ steps.push.outputs.image }}
+      short_sha: ${{ steps.sha.outputs.short }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+      - name: Authenticate to Google Cloud (PRD)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRD }}
+          service_account: ${{ secrets.WIF_SA_PRD }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.ARTIFACT_REGION }}-docker.pkg.dev
+      
+      - name: Build and push Docker image
+        id: push
+        env:
+          IMAGE_TAG: ${{ env.ARTIFACT_REGION }}-docker.pkg.dev/${{ vars.PRD_GCP_PROJECT_ID }}/${{ env.ARTIFACT_REPO_NAME }}/agent:${{ steps.sha.outputs.short }}
+        run: |
+          docker build -f docker/Dockerfile -t $IMAGE_TAG .
+          docker push $IMAGE_TAG
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Built and pushed: $IMAGE_TAG"
+
+  deploy-dev:
+    name: Deploy to DEV
+    needs: [bootstrap, build]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud (DEV)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER_DEV }}
+          service_account: ${{ secrets.WIF_SA_DEV }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      
+      # Enable required APIs - required before Terraform runs
+      - name: Enable Required APIs
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          echo "Enabling required APIs..."
+          gcloud services enable cloudresourcemanager.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable compute.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable artifactregistry.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable run.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable secretmanager.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          gcloud services enable dns.googleapis.com \
+            --project="${DEV_GCP_PROJECT_ID}" || true
+          echo "✓ Required APIs enabled"
+          echo "Waiting 10 seconds for API propagation..."
+          sleep 10
+      
+      # Bootstrap Terraform State Bucket (DEV) - must exist before terraform init
+      - name: Bootstrap Terraform State Bucket (DEV)
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          BUCKET_NAME="payments-agent-wpp-dev-tf-state"
+          REGION="us-central1"
+          
+          # Check if bucket already exists
+          if gcloud storage buckets describe "gs://${BUCKET_NAME}" --project="${DEV_GCP_PROJECT_ID}" &>/dev/null; then
+            echo "Bucket ${BUCKET_NAME} already exists, skipping creation"
+          else
+            # Create bucket
+            gcloud storage buckets create "gs://${BUCKET_NAME}" \
+              --project="${DEV_GCP_PROJECT_ID}" \
+              --location="${REGION}" \
+              --uniform-bucket-level-access
+            echo "✓ Bucket ${BUCKET_NAME} created"
+          fi
+          
+          # Enable versioning
+          gcloud storage buckets update "gs://${BUCKET_NAME}" \
+            --project="${DEV_GCP_PROJECT_ID}" \
+            --versioning
+          echo "✓ Versioning enabled on ${BUCKET_NAME}"
+          
+          # Grant permissions to service account
+          SERVICE_ACCOUNT="github-actions-sa@${DEV_GCP_PROJECT_ID}.iam.gserviceaccount.com"
+          gsutil iam ch serviceAccount:${SERVICE_ACCOUNT}:roles/storage.objectAdmin "gs://${BUCKET_NAME}" || true
+          echo "✓ Permissions granted on ${BUCKET_NAME}"
+      
+      # Bootstrap DNS Zone (DEV project - must exist before terraform apply)
+      # This creates the DNS zone once (shared by all agents)
+      # Individual DNS A records are created automatically by Terraform
+      - name: Bootstrap DNS Zone (DEV)
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-dns-zone.sh
+          infrastructure/scripts/bootstrap-dns-zone.sh
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+      
+      - name: Terraform Init
+        working-directory: infrastructure/terraform
+        run: |
+          terraform init -backend-config=environments/dev/backend.conf
+      
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.DEV_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.DEV_GCP_REGION }}
+          TF_VAR_environment: dev
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.DEV_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.DEV_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.DEV_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform plan \
+            -var-file=environments/dev/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}"
+      
+      # Ensure secrets are in sync: if a secret exists in GCP but not in Terraform state,
+      # delete it from GCP so Terraform can create it properly (secrets created outside Terraform flow)
+      - name: Sync Secrets with Terraform State
+        working-directory: infrastructure/terraform
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          # Function to sync secret: if exists in GCP but not in state, delete from GCP
+          sync_secret_with_state() {
+            local secret_name=$1
+            local terraform_resource=$2
+            
+            # Check if secret exists in GCP
+            if ! gcloud secrets describe "$secret_name" --project="$DEV_GCP_PROJECT_ID" &>/dev/null; then
+              echo "Secret $secret_name does not exist in GCP, Terraform will create it"
+              return 0
+            fi
+            
+            # Check if already in Terraform state
+            if terraform state show "$terraform_resource" &>/dev/null 2>&1; then
+              echo "✓ Secret $secret_name already in Terraform state"
+              return 0
+            fi
+            
+            # Secret exists in GCP but not in Terraform state - delete from GCP
+            echo "⚠ Secret $secret_name exists in GCP but not in Terraform state"
+            echo "⚠ Deleting secret from GCP so Terraform can create it properly..."
+            
+            # Delete all versions of the secret first
+            echo "Deleting all versions of $secret_name..."
+            gcloud secrets versions list "$secret_name" --project="$DEV_GCP_PROJECT_ID" --format="value(name)" 2>/dev/null | \
+              while read -r version; do
+                if [ -n "$version" ]; then
+                  echo "  Deleting version: $version"
+                  gcloud secrets versions destroy "$version" --secret="$secret_name" --project="$DEV_GCP_PROJECT_ID" --quiet 2>/dev/null || true
+                fi
+              done
+            
+            # Delete the secret itself
+            echo "Deleting secret $secret_name from GCP..."
+            gcloud secrets delete "$secret_name" --project="$DEV_GCP_PROJECT_ID" --quiet 2>/dev/null || true
+            
+            echo "✓ Secret $secret_name deleted from GCP - Terraform will create it in Fase 1"
+          }
+          
+          # Sync all secrets with Terraform state (same treatment for all)
+          sync_secret_with_state "payments-agent-google-api-key" "google_secret_manager_secret.api_key"
+          sync_secret_with_state "payments-agent-meta-app-secret" "google_secret_manager_secret.meta_app_secret"
+          sync_secret_with_state "payments-agent-demo-access-code" "google_secret_manager_secret.demo_access_code"
+      
+      # Fase 1: Criar apenas secrets e IAM bindings
+      - name: Terraform Apply - Create Secrets Only
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.DEV_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.DEV_GCP_REGION }}
+          TF_VAR_environment: dev
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.DEV_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.DEV_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.DEV_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform apply \
+            -target=google_secret_manager_secret.api_key \
+            -target=google_secret_manager_secret.meta_app_secret \
+            -target=google_secret_manager_secret.demo_access_code \
+            -target=google_secret_manager_secret_iam_member.api_key_access \
+            -target=google_secret_manager_secret_iam_member.meta_app_secret_access \
+            -target=google_secret_manager_secret_iam_member.demo_access_code_access \
+            -var-file=environments/dev/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}" \
+            -auto-approve
+      
+      # Fase 2: Versionar secrets após criação
+      - name: Update Secret Manager Secret Values
+        env:
+          DEV_GCP_PROJECT_ID: ${{ vars.DEV_GCP_PROJECT_ID }}
+        run: |
+          # Versiona todos os secrets após serem criados pelo Terraform
+          echo "${{ secrets.DEV_GOOGLE_API_KEY }}" | gcloud secrets versions add payments-agent-google-api-key \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ GOOGLE_API_KEY secret version created"
+          
+          echo "${{ secrets.DEV_META_APP_SECRET }}" | gcloud secrets versions add payments-agent-meta-app-secret \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ META_APP_SECRET secret version created"
+          
+          echo "${{ secrets.DEV_DEMO_ACCESS_CODE }}" | gcloud secrets versions add payments-agent-demo-access-code \
+            --project=$DEV_GCP_PROJECT_ID \
+            --data-file=-
+          echo "✓ DEMO_ACCESS_CODE secret version created"
+      
+      # Fase 3: Criar Cloud Run e demais recursos
+      - name: Terraform Apply - Create Cloud Run and Other Resources
+        working-directory: infrastructure/terraform
+        env:
+          TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+          TF_VAR_project_id: ${{ vars.DEV_GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ vars.DEV_GCP_REGION }}
+          TF_VAR_environment: dev
+          TF_VAR_service_name: payments-agent
+          TF_VAR_gemini_model: ${{ vars.DEV_GEMINI_MODEL }}
+          TF_VAR_log_level: ${{ vars.DEV_LOG_LEVEL }}
+          TF_VAR_session_ttl_minutes: ${{ vars.DEV_SESSION_TTL_MINUTES }}
+          TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
+          TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
+          TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+        run: |
+          terraform apply \
+            -var-file=environments/dev/terraform.tfvars \
+            -var="image=${{ needs.build.outputs.image_tag }}" \
+            -auto-approve
+      
+      # Setup Cross-Project IAM for DEV to access PRD Artifact Registry
+      - name: Bootstrap Cross-Project IAM
+        run: |
+          chmod +x infrastructure/scripts/bootstrap-cross-project-iam.sh
+          infrastructure/scripts/bootstrap-cross-project-iam.sh || echo "Cross-project IAM already configured or Cloud Run service not ready yet"
+      
+      - name: Output Service URL
+        working-directory: infrastructure/terraform
+        run: |
+          terraform output -raw service_url
+
+  # deploy-prd:
+  #   name: Deploy to PRD
+  #   needs: build
+  #   if: github.event.pull_request.merged == true && github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   environment: prd
+  #   permissions:
+  #     contents: read
+  #     id-token: write
+  #   
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #     
+  #     - name: Authenticate to Google Cloud (PRD)
+  #       uses: google-github-actions/auth@v2
+  #       with:
+  #         workload_identity_provider: ${{ secrets.WIF_PROVIDER_PRD }}
+  #         service_account: ${{ secrets.WIF_SA_PRD }}
+  #     
+  #     - name: Set up Cloud SDK
+  #       uses: google-github-actions/setup-gcloud@v2
+  #     
+  #     - name: Set up Terraform
+  #       uses: hashicorp/setup-terraform@v3
+  #       with:
+  #         terraform_version: "1.6.0"
+  #     
+  #     - name: Enable Secret Manager API
+  #       env:
+  #         PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
+  #       run: |
+  #         gcloud services enable secretmanager.googleapis.com --project=$PRD_GCP_PROJECT_ID || true
+  #         echo "Secret Manager API enabled (or already enabled)"
+  #     
+  #     - name: Terraform Init
+  #       working-directory: infrastructure/terraform
+  #       run: |
+  #         terraform init -backend-config=environments/prd/backend.conf
+  #     
+     #     - name: Create/Update Secret Manager Secret Values
+     #       env:
+     #         PRD_GCP_PROJECT_ID: ${{ vars.PRD_GCP_PROJECT_ID }}
+     #       run: |
+     #         # Update GOOGLE_API_KEY secret
+     #         SECRET_NAME="payments-agent-google-api-key"
+     #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+     #           echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets versions add $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         else
+     #           echo "${{ secrets.PRD_GOOGLE_API_KEY }}" | gcloud secrets create $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         fi
+     #         echo "✓ GOOGLE_API_KEY secret version created/updated"
+     #         
+     #         # Update META_APP_SECRET secret
+     #         SECRET_NAME="payments-agent-meta-app-secret"
+     #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+     #           echo "${{ secrets.PRD_META_APP_SECRET }}" | gcloud secrets versions add $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         else
+     #           echo "${{ secrets.PRD_META_APP_SECRET }}" | gcloud secrets create $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         fi
+     #         echo "✓ META_APP_SECRET secret version created/updated"
+     #         
+     #         # Update DEMO_ACCESS_CODE secret
+     #         SECRET_NAME="payments-agent-demo-access-code"
+     #         if gcloud secrets describe $SECRET_NAME --project=$PRD_GCP_PROJECT_ID &>/dev/null; then
+     #           echo "${{ secrets.PRD_DEMO_ACCESS_CODE }}" | gcloud secrets versions add $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         else
+     #           echo "${{ secrets.PRD_DEMO_ACCESS_CODE }}" | gcloud secrets create $SECRET_NAME \
+     #             --project=$PRD_GCP_PROJECT_ID \
+     #             --data-file=-
+     #         fi
+     #         echo "✓ DEMO_ACCESS_CODE secret version created/updated"
+  #     
+  #     - name: Terraform Plan
+  #       working-directory: infrastructure/terraform
+  #       env:
+  #         TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+  #         TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
+  #         TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
+  #         TF_VAR_environment: prd
+  #         TF_VAR_service_name: payments-agent
+  #         TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
+  #         TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
+  #         TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
+  #         TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
+  #         TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
+  #         TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+  #       run: |
+  #         terraform plan \
+  #           -var-file=environments/prd/terraform.tfvars \
+  #           -var="image=${{ needs.build.outputs.image_tag }}"
+  #     
+  #     - name: Terraform Apply
+  #       working-directory: infrastructure/terraform
+  #       env:
+  #         TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+  #         TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
+  #         TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
+  #         TF_VAR_environment: prd
+  #         TF_VAR_service_name: payments-agent
+  #         TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
+  #         TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
+  #         TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
+  #         TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
+  #         TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
+  #         TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+  #       run: |
+  #         terraform apply -auto-approve \
+  #           -var-file=environments/prd/terraform.tfvars \
+  #           -var="image=${{ needs.build.outputs.image_tag }}"
+  #     
+  #     - name: Output Service URL
+  #       working-directory: infrastructure/terraform
+  #       run: |
+  #         terraform output -raw service_url
+

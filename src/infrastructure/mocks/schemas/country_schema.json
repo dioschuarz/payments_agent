@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["code", "name"],
+    "properties": {
+      "code": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "ISO 3166-1 alpha-2 country code"
+      },
+      "name": {
+        "type": "string",
+        "description": "Official country name"
+      },
+      "aliases": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Alternative names or variations for the country"
+      }
+    }
+  }
+}
+
