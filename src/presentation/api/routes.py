@@ -199,7 +199,14 @@ async def demo_send(
 
         # 2. Validate access code (early exit to save CPU)
         demo_access_code = os.getenv("DEMO_ACCESS_CODE")
-        if not demo_access_code or demo_request.access_code != demo_access_code:
+        if not demo_access_code:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="DEMO_ACCESS_CODE not configured",
+            )
+        # Strip whitespace (including newlines) from secret value
+        demo_access_code = demo_access_code.strip()
+        if demo_request.access_code != demo_access_code:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Invalid access code",
