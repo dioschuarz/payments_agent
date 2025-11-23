@@ -15,14 +15,14 @@ resource "google_cloud_run_v2_service" "service" {
   depends_on = [
     google_project_service.cloud_run,
     google_service_account.cloud_run,
-    google_secret_manager_secret.api_key,                        # Secret must exist before referencing
-    google_secret_manager_secret.meta_app_secret,                # Meta App Secret must exist
-    google_secret_manager_secret.demo_access_code,               # Demo Access Code must exist
-    google_secret_manager_secret_iam_member.api_key_access,      # IAM binding for secret access
-    google_secret_manager_secret_iam_member.meta_app_secret_access, # IAM binding for Meta secret access
+    google_secret_manager_secret.api_key,                            # Secret must exist before referencing
+    google_secret_manager_secret.meta_app_secret,                    # Meta App Secret must exist
+    google_secret_manager_secret.demo_access_code,                   # Demo Access Code must exist
+    google_secret_manager_secret_iam_member.api_key_access,          # IAM binding for secret access
+    google_secret_manager_secret_iam_member.meta_app_secret_access,  # IAM binding for Meta secret access
     google_secret_manager_secret_iam_member.demo_access_code_access, # IAM binding for Demo Access Code
-    google_project_iam_member.cloud_run_invoker,                # IAM binding for Cloud Run invocation
-    null_resource.artifact_registry_iam_propagated              # For DEV: ensures IAM propagation completed
+    google_project_iam_member.cloud_run_invoker,                     # IAM binding for Cloud Run invocation
+    null_resource.artifact_registry_iam_propagated                   # For DEV: ensures IAM propagation completed
   ]
 
   # Lifecycle rules to handle existing resources and prevent accidental deletion
