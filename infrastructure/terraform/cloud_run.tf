@@ -17,8 +17,10 @@ resource "google_cloud_run_v2_service" "service" {
     google_service_account.cloud_run,
     google_secret_manager_secret.api_key,                        # Secret must exist before referencing
     google_secret_manager_secret.meta_app_secret,                # Meta App Secret must exist
+    google_secret_manager_secret.demo_access_code,               # Demo Access Code must exist
     google_secret_manager_secret_iam_member.api_key_access,      # IAM binding for secret access
     google_secret_manager_secret_iam_member.meta_app_secret_access, # IAM binding for Meta secret access
+    google_secret_manager_secret_iam_member.demo_access_code_access, # IAM binding for Demo Access Code
     google_project_iam_member.cloud_run_invoker,                # IAM binding for Cloud Run invocation
     null_resource.artifact_registry_iam_propagated              # For DEV: ensures IAM propagation completed
   ]
@@ -70,8 +72,13 @@ resource "google_cloud_run_v2_service" "service" {
       }
 
       env {
-        name  = "DEMO_ACCESS_CODE"
-        value = var.demo_access_code
+        name = "DEMO_ACCESS_CODE"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.demo_access_code.secret_id
+            version = "latest"
+          }
+        }
       }
 
       env {
