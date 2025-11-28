@@ -212,6 +212,13 @@ flowchart TD
    META_APP_SECRET=chave-ficticia-123  # Temporary secret for demo
    DEMO_ACCESS_CODE=WPP-DEMO  # Access code for demo requests
    GCP_PROJECT_ID=your-project-id  # Optional, required for Firestore idempotency
+   
+   # ADK Retry Configuration (optional, defaults shown)
+   ADK_MAX_RETRIES=5
+   ADK_INITIAL_BACKOFF_SECONDS=0.5
+   ADK_MAX_BACKOFF_SECONDS=32.0
+   ADK_BACKOFF_MULTIPLIER=2.0
+   ADK_ENABLE_RETRY=true
    ```
 
 3. **Run the application**:
@@ -237,6 +244,13 @@ flowchart TD
    META_APP_SECRET=chave-ficticia-123  # Temporary secret for demo
    DEMO_ACCESS_CODE=WPP-DEMO  # Access code for demo requests
    GCP_PROJECT_ID=your-project-id  # Optional, required for Firestore idempotency
+   
+   # ADK Retry Configuration (optional, defaults shown)
+   ADK_MAX_RETRIES=5
+   ADK_INITIAL_BACKOFF_SECONDS=0.5
+   ADK_MAX_BACKOFF_SECONDS=32.0
+   ADK_BACKOFF_MULTIPLIER=2.0
+   ADK_ENABLE_RETRY=true
    ```
 
 2. **Build and run with Docker Compose**:
@@ -407,6 +421,11 @@ gcloud storage buckets list --project=<YOUR_PROJECT_ID> | grep tf-state
 - `DEV_CACHE_TTL_INTENT_HOURS` = `1`
 - `DEV_CACHE_TTL_BENEFICIARY_MINUTES` = `30`
 - `DEV_CACHE_TTL_VALIDATION_HOURS` = `1`
+- `DEV_ADK_MAX_RETRIES` = `5` (Maximum retry attempts for ADK API calls - REQUIRED)
+- `DEV_ADK_INITIAL_BACKOFF_SECONDS` = `0.5` (Initial delay before first retry - REQUIRED)
+- `DEV_ADK_MAX_BACKOFF_SECONDS` = `32.0` (Maximum delay between retries - REQUIRED)
+- `DEV_ADK_BACKOFF_MULTIPLIER` = `2.0` (Exponential backoff multiplier - REQUIRED)
+- `DEV_ADK_ENABLE_RETRY` = `true` (Enable/disable retry mechanism - REQUIRED)
 
 **GitHub Secrets (DEV):**
 - `WIF_PROVIDER_DEV` = (output from `bootstrap-wif-dev.sh` script)
@@ -424,6 +443,11 @@ gcloud storage buckets list --project=<YOUR_PROJECT_ID> | grep tf-state
 - `PRD_CACHE_TTL_INTENT_HOURS` = `1`
 - `PRD_CACHE_TTL_BENEFICIARY_MINUTES` = `30`
 - `PRD_CACHE_TTL_VALIDATION_HOURS` = `1`
+- `PRD_ADK_MAX_RETRIES` = `5` (Maximum retry attempts for ADK API calls - REQUIRED)
+- `PRD_ADK_INITIAL_BACKOFF_SECONDS` = `0.5` (Initial delay before first retry - REQUIRED)
+- `PRD_ADK_MAX_BACKOFF_SECONDS` = `32.0` (Maximum delay between retries - REQUIRED)
+- `PRD_ADK_BACKOFF_MULTIPLIER` = `2.0` (Exponential backoff multiplier - REQUIRED)
+- `PRD_ADK_ENABLE_RETRY` = `true` (Enable/disable retry mechanism - REQUIRED)
 
 **GitHub Secrets (PRD):**
 - `WIF_PROVIDER_PRD` = (output from `bootstrap-wif-prd.sh` script)
@@ -820,6 +844,16 @@ The application uses the following environment variables, which are configured v
 - `HOST`: Server host (default: 0.0.0.0)
 - `PORT`: Server port (default: 8000)
 
+#### ADK Retry Configuration
+
+- `ADK_MAX_RETRIES`: Maximum number of retry attempts (default: 5)
+- `ADK_INITIAL_BACKOFF_SECONDS`: Initial delay before first retry in seconds (default: 0.5)
+- `ADK_MAX_BACKOFF_SECONDS`: Maximum delay between retries in seconds (default: 32.0)
+- `ADK_BACKOFF_MULTIPLIER`: Exponential backoff multiplier (default: 2.0)
+- `ADK_ENABLE_RETRY`: Enable/disable retry mechanism (default: true)
+
+See the "Error Handling and Retry Mechanism" section for detailed information.
+
 ### GitHub Environment Variables
 
 Configuration values are managed via GitHub Environment Variables (preferred) and Secrets (sensitive data only). See the Deployment Guide section for the complete list of required variables.
@@ -939,12 +973,20 @@ gcloud projects get-iam-policy <YOUR_PROJECT_ID>-dev \
 
 #### Error 429 (Too Many Requests)
 
-**Cause:** Rate limit exceeded
+**Cause:** Rate limit exceeded (usually from Cloud Armor or Google ADK API)
+
+**Common Scenarios:**
+1. **Cloud Armor Rate Limiting**: During long conversations, each user message counts as a request. If you send many messages quickly, you may hit the rate limit.
+2. **Google ADK/Gemini API Rate Limiting**: The API itself may have rate limits.
 
 **Solution:**
-1. Wait a few minutes
-2. Adjust `cloud_armor_rate_limit_requests` if necessary
-3. Add your IP to `cloud_armor_allowed_ips` for bypass
+1. **Wait a moment** before sending another message (rate limits reset after the interval)
+2. **For Development**: Increase `cloud_armor_rate_limit_requests` in `terraform.tfvars` (default: 500 for DEV, 100 for PRD)
+3. **For Production**: Consider using session-based rate limiting or increasing limits based on expected conversation length
+4. **Add your IP** to `cloud_armor_allowed_ips` in `terraform.tfvars` to bypass rate limiting (development only)
+5. **Check logs** to identify if the 429 is from Cloud Armor (before application) or from the API (during processing)
+
+**Note**: The system now automatically retries 429 errors from the Google ADK API with exponential backoff. However, 429 errors from Cloud Armor (which occur before the request reaches the application) cannot be retried automatically and require waiting or adjusting limits.
 
 #### Load Balancer Not Responding
 

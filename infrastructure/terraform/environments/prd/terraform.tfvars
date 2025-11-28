@@ -40,4 +40,12 @@ cloud_armor_enable_ssl                 = false # Set to true and provide certifi
 # cloud_armor_blocked_ips = []  # Optional: Block known malicious IPs
 # cloud_armor_allowed_ips = []   # Optional: Allow specific IPs (bypass rate limit)
 
+# ADK Retry Configuration
+# These values should be provided via GitHub Actions as TF_VAR_* environment variables
+# Defaults are defined in variables.tf, but should be overridden via CI/CD
+# adk_max_retries             = 5
+# adk_initial_backoff_seconds = 0.5
+# adk_max_backoff_seconds     = 32.0
+# adk_backoff_multiplier      = 2.0
+# adk_enable_retry            = true
 

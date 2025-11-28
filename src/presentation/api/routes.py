@@ -6,6 +6,7 @@ import os
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from src.domain.exceptions import ADKServiceUnavailableError, AgentFlowError
 from src.infrastructure.security.hmac_verification import (
     generate_meta_signature,
     verify_meta_signature,
@@ -168,13 +169,65 @@ async def webhook(
             message=response_message,
             status="success",
         )
-    except HTTPException:
+    except HTTPException as e:
+        # If it's a 429 from Cloud Armor (before reaching our code), 
+        # it means rate limit was hit - this should be rare if retry logic is working
+        # But if it happens, we still return 503 to avoid exposing rate limit details
+        if e.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable. Please try again in a moment.",
+            )
         raise
-    except Exception as e:
+    except AgentFlowError as e:
+        # Agent flow error - service unavailable after retries
+        # This includes 429 errors that were retried but still failed
+        # Return 503 to indicate service is temporarily unavailable (not exposing rate limit)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing message: {str(e)}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=e.user_friendly_message,
         )
+    except ADKServiceUnavailableError as e:
+        # ADK service unavailable - return 503
+        # This includes 429 errors from Google ADK API that were retried
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable. Please try again later.",
+        )
+    except Exception as e:
+        # Check for 429 errors - these should be retried internally, not exposed to user
+        error_str = str(e).lower()
+        is_rate_limit = (
+            "429" in error_str
+            or "too many requests" in error_str
+            or "rate limit" in error_str
+            or (hasattr(e, "status_code") and e.status_code == 429)
+        )
+
+        # If we get a 429 here, it means retry logic didn't catch it
+        # Still return 503 instead of 429 to avoid exposing rate limit details
+        if is_rate_limit:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable. Please try again in a moment.",
+            )
+
+        # Other errors - check if they're retryable (5xx) or not (4xx)
+        is_retryable = any(
+            code in error_str
+            for code in ["503", "500", "502", "504", "service unavailable", "internal server error"]
+        ) or hasattr(e, "status_code") and isinstance(e.status_code, int) and e.status_code >= 500
+
+        if is_retryable:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable. Please try again later.",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error processing message: {str(e)}",
+            )
 
 
 @router.post("/demo/send", response_model=WhatsAppMessageResponse)
@@ -279,6 +332,56 @@ async def whatsapp_webhook(
             message=response_message,
             status="success",
         )
+    except HTTPException as e:
+        # If it's already a 429, it might be from Cloud Armor - add helpful message
+        if e.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Please wait a moment before sending another message.",
+            )
+        raise
+    except AgentFlowError as e:
+        # Agent flow error - service unavailable after retries
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=e.user_friendly_message,
+        )
+    except ADKServiceUnavailableError as e:
+        # ADK service unavailable - return 503
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable. Please try again later.",
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+        # Check for 429 errors (rate limiting from Cloud Armor or API)
+        error_str = str(e).lower()
+        is_rate_limit = (
+            "429" in error_str
+            or "too many requests" in error_str
+            or "rate limit" in error_str
+            or (hasattr(e, "status_code") and e.status_code == 429)
+        )
+
+        if is_rate_limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Please wait a moment before sending another message.",
+            )
+
+        # Other errors - check if they're retryable (5xx) or not (4xx)
+        is_retryable = any(
+            code in error_str
+            for code in ["503", "500", "502", "504", "service unavailable", "internal server error"]
+        ) or hasattr(e, "status_code") and isinstance(e.status_code, int) and e.status_code >= 500
+
+        if is_retryable:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service temporarily unavailable. Please try again later.",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error processing message: {str(e)}",
+            )
 

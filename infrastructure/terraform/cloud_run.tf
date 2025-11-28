@@ -117,6 +117,32 @@ resource "google_cloud_run_v2_service" "service" {
         value = var.gemini_model
       }
 
+      # ADK Retry Configuration
+      env {
+        name  = "ADK_MAX_RETRIES"
+        value = tostring(var.adk_max_retries)
+      }
+
+      env {
+        name  = "ADK_INITIAL_BACKOFF_SECONDS"
+        value = tostring(var.adk_initial_backoff_seconds)
+      }
+
+      env {
+        name  = "ADK_MAX_BACKOFF_SECONDS"
+        value = tostring(var.adk_max_backoff_seconds)
+      }
+
+      env {
+        name  = "ADK_BACKOFF_MULTIPLIER"
+        value = tostring(var.adk_backoff_multiplier)
+      }
+
+      env {
+        name  = "ADK_ENABLE_RETRY"
+        value = tostring(var.adk_enable_retry)
+      }
+
       resources {
         limits = {
           cpu    = var.cpu

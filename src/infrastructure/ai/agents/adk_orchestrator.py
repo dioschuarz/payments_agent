@@ -9,8 +9,10 @@ from google.adk.memory import InMemoryMemoryService
 from google.adk.plugins import LoggingPlugin, ReflectAndRetryToolPlugin
 from google.adk.sessions import InMemorySessionService
 
+from src.domain.exceptions import ADKServiceUnavailableError
 from src.domain.value_objects.countries_data import get_country_list_for_prompt
 from src.infrastructure.ai.prompts.prompt_loader import PromptLoader
+from src.infrastructure.ai.retry_handler import _get_retry_config, retry_with_backoff
 from src.infrastructure.ai.tools.amount_tool import create_amount_tool
 from src.infrastructure.ai.tools.beneficiary_tool import create_beneficiary_tool
 from src.infrastructure.ai.tools.country_tool import create_country_tool
@@ -137,53 +139,75 @@ class ADKOrchestrator:
         
         message = Content(role="user", parts=[{"text": user_input}])
         
-        # Run agent and collect response
-        response_text = ""
-        final_response_text = ""
+        # Define async function to run agent with retry logic
+        async def _run_agent_with_events():
+            """Run agent and collect response events."""
+            response_text = ""
+            final_response_text = ""
+            
+            async for event in self._runner.run_async(
+                user_id=session_id,
+                session_id=session_id,
+                new_message=message,
+            ):
+                # Extract text from response events
+                # ADK events have a 'content' attribute that can be Content object or other types
+                try:
+                    if hasattr(event, 'content'):
+                        content = event.content
+                        # If content is a Content object with parts
+                        if hasattr(content, 'parts') and content.parts is not None:
+                            for part in content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    response_text += part.text
+                                elif isinstance(part, dict) and 'text' in part:
+                                    response_text += part['text']
+                        # If content has text directly
+                        elif hasattr(content, 'text') and content.text:
+                            response_text += content.text
+                        # If content is a string
+                        elif isinstance(content, str):
+                            response_text += content
+                    
+                    # Also check for text attribute directly on event
+                    if hasattr(event, 'text') and event.text:
+                        response_text += event.text
+                    
+                    # Check if this is the final response event
+                    if hasattr(event, 'is_final_response') and event.is_final_response:
+                        final_response_text = response_text
+                except (TypeError, AttributeError) as e:
+                    # Handle unexpected NoneType or attribute errors gracefully
+                    # Log error but continue processing other events
+                    logging.warning(f"Error processing event: {e}")
+                    continue
+            
+            # Use final response if available, otherwise use accumulated text
+            result_text = final_response_text if final_response_text else response_text
+            
+            # If no text response, generate a default
+            if not result_text:
+                result_text = "I'm here to help you send money. What would you like to do?"
+            
+            return result_text
         
-        async for event in self._runner.run_async(
-            user_id=session_id,
-            session_id=session_id,
-            new_message=message,
-        ):
-            # Extract text from response events
-            # ADK events have a 'content' attribute that can be Content object or other types
-            try:
-                if hasattr(event, 'content'):
-                    content = event.content
-                    # If content is a Content object with parts
-                    if hasattr(content, 'parts') and content.parts is not None:
-                        for part in content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                response_text += part.text
-                            elif isinstance(part, dict) and 'text' in part:
-                                response_text += part['text']
-                    # If content has text directly
-                    elif hasattr(content, 'text') and content.text:
-                        response_text += content.text
-                    # If content is a string
-                    elif isinstance(content, str):
-                        response_text += content
-                
-                # Also check for text attribute directly on event
-                if hasattr(event, 'text') and event.text:
-                    response_text += event.text
-                
-                # Check if this is the final response event
-                if hasattr(event, 'is_final_response') and event.is_final_response:
-                    final_response_text = response_text
-            except (TypeError, AttributeError) as e:
-                # Handle unexpected NoneType or attribute errors gracefully
-                # Log error but continue processing other events
-                logging.warning(f"Error processing event: {e}")
-                continue
-        
-        # Use final response if available, otherwise use accumulated text
-        result_text = final_response_text if final_response_text else response_text
-        
-        # If no text response, generate a default
-        if not result_text:
-            result_text = "I'm here to help you send money. What would you like to do?"
-        
-        return result_text
+        # Run agent with retry logic
+        try:
+            result_text = await retry_with_backoff(
+                _run_agent_with_events,
+                context={
+                    "session_id": session_id,
+                    "component": "ADKOrchestrator",
+                },
+            )
+            return result_text
+        except Exception as e:
+            # After all retries exhausted, raise custom exception
+            config = _get_retry_config()
+            max_retries = config["max_retries"]
+            raise ADKServiceUnavailableError(
+                f"Google ADK service unavailable after {max_retries + 1} attempts: {str(e)}",
+                attempts=max_retries + 1,
+                original_error=e,
+            ) from e
 
