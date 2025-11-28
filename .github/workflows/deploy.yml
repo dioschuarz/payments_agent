@@ -233,6 +233,11 @@ jobs:
           TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
           TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
           TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+          TF_VAR_adk_max_retries: ${{ vars.DEV_ADK_MAX_RETRIES }}
+          TF_VAR_adk_initial_backoff_seconds: ${{ vars.DEV_ADK_INITIAL_BACKOFF_SECONDS }}
+          TF_VAR_adk_max_backoff_seconds: ${{ vars.DEV_ADK_MAX_BACKOFF_SECONDS }}
+          TF_VAR_adk_backoff_multiplier: ${{ vars.DEV_ADK_BACKOFF_MULTIPLIER }}
+          TF_VAR_adk_enable_retry: ${{ vars.DEV_ADK_ENABLE_RETRY }}
         run: |
           terraform plan \
             -var-file=environments/dev/terraform.tfvars \
@@ -305,6 +310,11 @@ jobs:
           TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
           TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
           TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+          TF_VAR_adk_max_retries: ${{ vars.DEV_ADK_MAX_RETRIES }}
+          TF_VAR_adk_initial_backoff_seconds: ${{ vars.DEV_ADK_INITIAL_BACKOFF_SECONDS }}
+          TF_VAR_adk_max_backoff_seconds: ${{ vars.DEV_ADK_MAX_BACKOFF_SECONDS }}
+          TF_VAR_adk_backoff_multiplier: ${{ vars.DEV_ADK_BACKOFF_MULTIPLIER }}
+          TF_VAR_adk_enable_retry: ${{ vars.DEV_ADK_ENABLE_RETRY }}
         run: |
           terraform apply \
             -target=google_secret_manager_secret.api_key \
@@ -353,6 +363,11 @@ jobs:
           TF_VAR_cache_ttl_intent_hours: ${{ vars.DEV_CACHE_TTL_INTENT_HOURS }}
           TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.DEV_CACHE_TTL_BENEFICIARY_MINUTES }}
           TF_VAR_cache_ttl_validation_hours: ${{ vars.DEV_CACHE_TTL_VALIDATION_HOURS }}
+          TF_VAR_adk_max_retries: ${{ vars.DEV_ADK_MAX_RETRIES }}
+          TF_VAR_adk_initial_backoff_seconds: ${{ vars.DEV_ADK_INITIAL_BACKOFF_SECONDS }}
+          TF_VAR_adk_max_backoff_seconds: ${{ vars.DEV_ADK_MAX_BACKOFF_SECONDS }}
+          TF_VAR_adk_backoff_multiplier: ${{ vars.DEV_ADK_BACKOFF_MULTIPLIER }}
+          TF_VAR_adk_enable_retry: ${{ vars.DEV_ADK_ENABLE_RETRY }}
         run: |
           terraform apply \
             -var-file=environments/dev/terraform.tfvars \
@@ -453,39 +468,49 @@ jobs:
      #         fi
      #         echo "✓ DEMO_ACCESS_CODE secret version created/updated"
   #     
-  #     - name: Terraform Plan
-  #       working-directory: infrastructure/terraform
-  #       env:
-  #         TF_VAR_image: ${{ needs.build.outputs.image_tag }}
-  #         TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
-  #         TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
-  #         TF_VAR_environment: prd
-  #         TF_VAR_service_name: payments-agent
-  #         TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
-  #         TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
-  #         TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
-  #         TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
-  #         TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
-  #         TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+    #     - name: Terraform Plan
+    #       working-directory: infrastructure/terraform
+    #       env:
+    #         TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+    #         TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
+    #         TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
+    #         TF_VAR_environment: prd
+    #         TF_VAR_service_name: payments-agent
+    #         TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
+    #         TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
+    #         TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
+    #         TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
+    #         TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
+    #         TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+    #         TF_VAR_adk_max_retries: ${{ vars.PRD_ADK_MAX_RETRIES }}
+    #         TF_VAR_adk_initial_backoff_seconds: ${{ vars.PRD_ADK_INITIAL_BACKOFF_SECONDS }}
+    #         TF_VAR_adk_max_backoff_seconds: ${{ vars.PRD_ADK_MAX_BACKOFF_SECONDS }}
+    #         TF_VAR_adk_backoff_multiplier: ${{ vars.PRD_ADK_BACKOFF_MULTIPLIER }}
+    #         TF_VAR_adk_enable_retry: ${{ vars.PRD_ADK_ENABLE_RETRY }}
   #       run: |
   #         terraform plan \
   #           -var-file=environments/prd/terraform.tfvars \
   #           -var="image=${{ needs.build.outputs.image_tag }}"
   #     
-  #     - name: Terraform Apply
-  #       working-directory: infrastructure/terraform
-  #       env:
-  #         TF_VAR_image: ${{ needs.build.outputs.image_tag }}
-  #         TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
-  #         TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
-  #         TF_VAR_environment: prd
-  #         TF_VAR_service_name: payments-agent
-  #         TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
-  #         TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
-  #         TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
-  #         TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
-  #         TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
-  #         TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+    #     - name: Terraform Apply
+    #       working-directory: infrastructure/terraform
+    #       env:
+    #         TF_VAR_image: ${{ needs.build.outputs.image_tag }}
+    #         TF_VAR_project_id: ${{ vars.PRD_GCP_PROJECT_ID }}
+    #         TF_VAR_region: ${{ vars.PRD_GCP_REGION }}
+    #         TF_VAR_environment: prd
+    #         TF_VAR_service_name: payments-agent
+    #         TF_VAR_gemini_model: ${{ vars.PRD_GEMINI_MODEL }}
+    #         TF_VAR_log_level: ${{ vars.PRD_LOG_LEVEL }}
+    #         TF_VAR_session_ttl_minutes: ${{ vars.PRD_SESSION_TTL_MINUTES }}
+    #         TF_VAR_cache_ttl_intent_hours: ${{ vars.PRD_CACHE_TTL_INTENT_HOURS }}
+    #         TF_VAR_cache_ttl_beneficiary_minutes: ${{ vars.PRD_CACHE_TTL_BENEFICIARY_MINUTES }}
+    #         TF_VAR_cache_ttl_validation_hours: ${{ vars.PRD_CACHE_TTL_VALIDATION_HOURS }}
+    #         TF_VAR_adk_max_retries: ${{ vars.PRD_ADK_MAX_RETRIES }}
+    #         TF_VAR_adk_initial_backoff_seconds: ${{ vars.PRD_ADK_INITIAL_BACKOFF_SECONDS }}
+    #         TF_VAR_adk_max_backoff_seconds: ${{ vars.PRD_ADK_MAX_BACKOFF_SECONDS }}
+    #         TF_VAR_adk_backoff_multiplier: ${{ vars.PRD_ADK_BACKOFF_MULTIPLIER }}
+    #         TF_VAR_adk_enable_retry: ${{ vars.PRD_ADK_ENABLE_RETRY }}
   #       run: |
   #         terraform apply -auto-approve \
   #           -var-file=environments/prd/terraform.tfvars \

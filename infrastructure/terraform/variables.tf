@@ -170,3 +170,34 @@ variable "enable_strict_meta_checks" {
   default     = false
 }
 
+# ADK Retry Configuration
+variable "adk_max_retries" {
+  description = "Maximum number of retry attempts for ADK API calls"
+  type        = number
+  default     = 5
+}
+
+variable "adk_initial_backoff_seconds" {
+  description = "Initial backoff delay in seconds for ADK retry mechanism"
+  type        = number
+  default     = 0.5
+}
+
+variable "adk_max_backoff_seconds" {
+  description = "Maximum backoff delay in seconds for ADK retry mechanism"
+  type        = number
+  default     = 32.0
+}
+
+variable "adk_backoff_multiplier" {
+  description = "Exponential backoff multiplier for ADK retry mechanism"
+  type        = number
+  default     = 2.0
+}
+
+variable "adk_enable_retry" {
+  description = "Enable/disable retry mechanism for ADK API calls"
+  type        = bool
+  default     = true
+}
+

@@ -55,3 +55,12 @@ enable_strict_meta_checks = false # Set to false for Demo mode, true for Product
 # Note: demo_access_code is now managed via Secret Manager, not as a Terraform variable
 # The secret value should be set via GitHub Actions or manually:
 # gcloud secrets versions add payments-agent-demo-access-code --data-file=-
+
+# ADK Retry Configuration
+# These values should be provided via GitHub Actions as TF_VAR_* environment variables
+# Defaults are defined in variables.tf, but should be overridden via CI/CD
+# adk_max_retries             = 5
+# adk_initial_backoff_seconds = 0.5
+# adk_max_backoff_seconds     = 32.0
+# adk_backoff_multiplier      = 2.0
+# adk_enable_retry            = true

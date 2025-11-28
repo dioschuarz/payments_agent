@@ -1,8 +1,13 @@
 """Agent flow controller - Main orchestrator."""
 
+import logging
 from typing import Union
 
+from src.domain.exceptions import ADKServiceUnavailableError, AgentFlowError
 from src.infrastructure.ai.agents.adk_orchestrator import ADKOrchestrator
+from src.infrastructure.ai.retry_handler import retry_with_backoff
+
+logger = logging.getLogger(__name__)
 
 
 class AgentFlow:
@@ -27,8 +32,50 @@ class AgentFlow:
 
         Returns:
             Response message
+
+        Raises:
+            AgentFlowError: If processing fails after all retries
         """
-        return await self._orchestrator.process_message(session_id, user_input)
+        # Second layer of retry with more conservative settings (2 retries)
+        try:
+            return await retry_with_backoff(
+                self._orchestrator.process_message,
+                session_id,
+                user_input,
+                max_retries=2,  # More conservative than ADKOrchestrator
+                initial_backoff=1.0,  # Start with 1 second
+                context={
+                    "session_id": session_id,
+                    "component": "AgentFlow",
+                },
+            )
+        except ADKServiceUnavailableError as e:
+            # Convert ADK error to user-friendly message
+            logger.error(
+                f"Agent flow failed after retries: {e}",
+                extra={
+                    "session_id": session_id,
+                    "attempts": e.attempts,
+                    "original_error": str(e.original_error) if e.original_error else None,
+                },
+            )
+            raise AgentFlowError(
+                f"Service temporarily unavailable. Please try again in a moment.",
+                user_friendly_message="I'm having trouble processing your request right now. Please try again in a moment.",
+                original_error=e,
+            ) from e
+        except Exception as e:
+            # Handle any other unexpected errors
+            logger.error(
+                f"Unexpected error in agent flow: {e}",
+                extra={"session_id": session_id, "error_type": type(e).__name__},
+                exc_info=True,
+            )
+            raise AgentFlowError(
+                f"An error occurred while processing your message: {str(e)}",
+                user_friendly_message="I encountered an error processing your request. Please try again.",
+                original_error=e,
+            ) from e
 
     async def get_state(self, session_id: str):
         """
